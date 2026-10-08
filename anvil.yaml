@@ -1,4 +1,11 @@
 allow_embedding: false
+db_schema:
+  mapitems:
+    client: none
+    columns: []
+    indexes: []
+    server: full
+    title: MapItems
 metadata: {description: Test of Geolocating Mapping Functionality, title: Mapping}
 name: Mapping Test
 package_name: Mapping_Test

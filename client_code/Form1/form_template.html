@@ -3,13 +3,29 @@
   <anvil-block slot="content">
     <anvil-component type="ColumnPanel" name="column_panel_1" prop:role="card" designer:placeholder="Add components here">
       <anvil-component type="GridPanel" name="grid_panel_1">
-        <anvil-component type="Label" name="User_Name_Label" container:row="HIEZTO" container:width_xs="3" container:col_xs="0"></anvil-component>
+        <anvil-component type="Label" name="User_Name_Label" prop:text="User Name" container:row="HIEZTO" container:width_xs="3" container:col_xs="0"></anvil-component>
         <anvil-component type="TextBox" name="User_Name_Value" container:row="HIEZTO" container:width_xs="3" container:col_xs="4"></anvil-component>
-        <anvil-component type="Label" name="Street_Number_Label" container:row="VKOCPF" container:width_xs="4" container:col_xs="0"></anvil-component>
-        <anvil-component type="TextBox" name="Street_Number_Value" container:row="VKOCPF" container:width_xs="3" container:col_xs="4"></anvil-component>
-        <anvil-component type="Label" name="Street_Name_Label" container:row="UTGBFO" container:width_xs="3" container:col_xs="0"></anvil-component>
-        <anvil-component type="TextBox" name="text_box_3" container:row="UTGBFO" container:width_xs="3" container:col_xs="4"></anvil-component>
+        <anvil-component type="Label" name="Address1_Label" prop:text="Address 1" container:row="VKOCPF" container:width_xs="4" container:col_xs="0"></anvil-component>
+        <anvil-component type="TextBox" name="Address1_Value" container:row="VKOCPF" container:width_xs="3" container:col_xs="4"></anvil-component>
+        <anvil-component type="Label" name="Address2_Label" prop:text="Address 2" container:row="UTGBFO" container:width_xs="3" container:col_xs="0"></anvil-component>
+        <anvil-component type="TextBox" name="Address2_Value" container:row="UTGBFO" container:width_xs="3" container:col_xs="4"></anvil-component>
+        <anvil-component type="Label" name="City_Label" prop:text="City" container:row="DIOIRN" container:width_xs="3" container:col_xs="0"></anvil-component>
+        <anvil-component type="TextBox" name="City_Value" container:row="DIOIRN" container:width_xs="3" container:col_xs="4"></anvil-component>
+        <anvil-component type="Label" name="State_Province_Region_Label" prop:text="State / Province / Region" container:row="NOYHZJ" container:width_xs="3" container:col_xs="0"></anvil-component>
+        <anvil-component type="TextBox" name="State_Province_Region_Value" container:row="NOYHZJ" container:width_xs="3" container:col_xs="4"></anvil-component>
+        <anvil-component type="Label" name="Postal_Code_Label" prop:text="Postal Code" container:row="BKYBDW" container:width_xs="3" container:col_xs="0"></anvil-component>
+        <anvil-component type="TextBox" name="Postal_Code_Value" container:row="BKYBDW" container:width_xs="3" container:col_xs="4"></anvil-component>
+        <anvil-component type="Label" name="Country_Code_Label" prop:text="Country Code" container:row="NXVBES" container:width_xs="3" container:col_xs="0"></anvil-component>
+        <anvil-component type="DropDown" name="Country_Code_Value" container:row="NXVBES" container:width_xs="3" container:col_xs="4"></anvil-component>
+        <anvil-component type="Label" name="Latitude_Label" prop:text="Latitude
+" container:row="YUHHSO" container:width_xs="3" container:col_xs="0"></anvil-component>
+        <anvil-component type="TextBox" name="Latitude_Value" prop:type="number" prop:hide_text="false" container:row="YUHHSO" container:width_xs="3" container:col_xs="4"></anvil-component>
+        <anvil-component type="Label" name="Longitde_Label" prop:text="Longitude" container:row="EJMGVS" container:width_xs="3" container:col_xs="0"></anvil-component>
+        <anvil-component type="TextBox" name="Longitude_Value" prop:type="number" container:row="EJMGVS" container:width_xs="3" container:col_xs="4"></anvil-component>
+        <anvil-component type="Label" name="Formatter_Address_Label" prop:text="Formatted Address" container:row="JNQNKV" container:width_xs="3" container:col_xs="0"></anvil-component>
+        <anvil-component type="TextBox" name="Formatted_Address_Value" container:row="JNQNKV" container:width_xs="3" container:col_xs="4"></anvil-component>
       </anvil-component>
+      <anvil-component type="GoogleMap" name="map_1" prop:height="530.07470703125" container:grid_position="XFSJRJ,HMHCHW"></anvil-component>
     </anvil-component>
   </anvil-block>
   <anvil-block slot="title">
