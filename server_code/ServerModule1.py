@@ -132,21 +132,22 @@ def get_clustered_data(cluster_type, threshold=None):
   COLOR_MAP = {
     'miles': '#90EE90',       # Light Green
     'kilometers': '#006400',  # Dark Green
-    'postal_code': '#1E90FF', # Blue
+    'postal': '#1E90FF',      # Blue (Updated from postal_code)
     'city': '#FFD700',        # Yellow
     'state': '#FFA500',       # Orange
     'country': '#FF0000'      # Red
   }
 
-  if cluster_type in ['postal_code', 'city', 'state', 'country']:
+  # Fixed: Changed 'postal_code' to 'postal' to match client dropdown value
+  if cluster_type in ['postal', 'city', 'state', 'country']:
     field_mapping = {
-      'postal_code': 'postal_code',
+      'postal': 'postal_code',
       'city': 'city',
       'state': 'state',
       'country': 'country_code'
     }
     type_code_mapping = {
-      'postal_code': 'Post',
+      'postal': 'Post',
       'city': 'City',
       'state': 'St',
       'country': 'Ctry'
@@ -167,6 +168,7 @@ def get_clustered_data(cluster_type, threshold=None):
       if not valid_rows:
         continue
 
+      # Centroid calculation (already correct in your code)
       avg_lat = sum(r['latitude'] for r in valid_rows) / len(valid_rows)
       avg_lon = sum(r['longitude'] for r in valid_rows) / len(valid_rows)
 

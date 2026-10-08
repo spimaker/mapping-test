@@ -7,10 +7,7 @@ import anvil.tables as tables
 from anvil import GoogleMap
 
 class Form1(Form1Template):
-#
-# __init__
-#
-  
+
   def __init__(self, **properties):
     # Set Form properties and Data Bindings
     self.init_components(**properties)
@@ -22,7 +19,7 @@ class Form1(Form1Template):
     self.Cluster_Type_Dropdown.items = [
       ("Miles Perimeter", "miles"),
       ("Kilometers Perimeter", "kilometers"),
-      ("Postal Code", "postal_code"),
+      ("Postal Code", "postal"),
       ("City", "city"),
       ("State", "state"),
       ("Country", "country")
@@ -41,54 +38,35 @@ class Form1(Form1Template):
     # Set default selections
     self.Cluster_Type_Dropdown.selected_value = 'miles'
     self.Threshold_Dropdown.selected_value = 25
-    # Call this at the end of __init__ to set initial visibility
+
+    # Set initial threshold visibility
     self.update_threshold_visibility()
 
-#
-# update_threshold_visibility
-#
+  def load_countries(self):
+    """Fetch sorted list of countries from the server module"""
+    try:
+      country_items = anvil.server.call('get_country_list')
+      self.Country_Code_Value.items = country_items
+    except Exception as e:
+      print(f"Error loading countries: {e}")
 
   def update_threshold_visibility(self):
     """Shows or hides the threshold controls depending on the cluster type"""
     selected_type = self.Cluster_Type_Dropdown.selected_value
     is_distance = selected_type in ['miles', 'kilometers']
-  
+
     self.Threshold_Label.visible = is_distance
     self.Threshold_Dropdown.visible = is_distance
 
-#
-# Cluster_Type_Dropdown_change
-#
-  
   @anvil.handle("Cluster_Type_Dropdown", "change")
   def Cluster_Type_Dropdown_change(self, **event_args):
-    """Triggered automatically by Anvil when the dropdown changes"""
+    """Triggered automatically when the user changes the cluster type"""
     self.update_threshold_visibility()
-      
-#
-# load_countries
-#
-  
-  def load_countries(self):
-    try:
-      # Fetch sorted list of countries from the server module
-      country_items = anvil.server.call('get_country_list')
+    self.Load_Clusters_Button_click()
 
-      # Anvil DropDown items take a list of tuples: (Label, Value)
-      # e.g., [("United States", "US"), ("Canada", "CA"), ...]
-      self.Country_Code_Value.items = country_items
-
-    except Exception as e:
-      print(f"Error loading countries: {e}")
-
-#
-# save_button_click
-#
-  
   @anvil.handle("Save_Button", "click")
   def save_button_click(self, **event_args):
     """This method is called when the Save button is clicked"""
-  
     form_data = {
       'User_Name_Value': self.User_Name_Value.text,
       'Address1_Value': self.Address1_Value.text,
@@ -101,66 +79,39 @@ class Form1(Form1Template):
       'Longitude_Value': float(self.Longitude_Value.text) if self.Longitude_Value.text else None,
       'Formatted_Address_Value': self.Formatted_Address_Value.text
     }
-  
+
     try:
       result = anvil.server.call('save_map_item', form_data)
-  
       status = result.get('status')
       lat = result.get('latitude')
       lon = result.get('longitude')
-  
+
       if status == 'duplicate':
         anvil.alert("Warning: This is a duplicate record and was not saved.", title="Duplicate Detected")
       elif status == 'saved':
         anvil.Notification("Successfully saved! Loading clusters...").show()
-  
-        # Automatically load and render the global clusters instead of raw individual pins
+
+      # Automatically load and render the global clusters
       self.Load_Clusters_Button_click()
-  
-      # Optionally center the map near the newly added location with a regional view
+
       if lat and lon:
         self.map_1.center = GoogleMap.LatLng(lat, lon)
         self.map_1.zoom = 10
-  
+
     except Exception as e:
       anvil.alert(f"An error occurred: {e}")
-#
-# cluster_type_dropdown_change
-#
-  
-  def cluster_type_dropdown_change(self, **event_args):
-    """Triggered when the user changes the cluster type selection"""
-    self.update_threshold_visibility()
-
-#
-# update_threshold_visibility
-#
-
-  def update_threshold_visibility(self):
-    """Enable/show threshold dropdown only for distance-based perimeters"""
-    selected_type = self.Cluster_Type_Dropdown.selected_value
-    is_distance_based = selected_type in ['miles', 'kilometers']
-  
-    self.Threshold_Label.visible = is_distance_based
-    self.Threshold_Dropdown.visible = is_distance_based
-#
-# load_clusters_button_click
-#
 
   @anvil.handle("Load_Clusters_Button", "click")
   def Load_Clusters_Button_click(self, **event_args):
-    """Triggered when the user clicks the button to load and plot clusters"""
+    """Triggered when loading and plotting clusters"""
     cluster_type = self.Cluster_Type_Dropdown.selected_value
     threshold = self.Threshold_Dropdown.selected_value if cluster_type in ['miles', 'kilometers'] else None
-  
+
     try:
-      # Call server function to get clusters
       clusters = anvil.server.call('get_clustered_data', cluster_type=cluster_type, threshold=threshold)
-  
-      # Clear existing map markers
       self.map_1.clear()
-  
-      for cluster in clusters:
+
+      for i, cluster in enumerate(clusters):
         lat = cluster['latitude']
         lon = cluster['longitude']
         count = cluster['count']
@@ -168,30 +119,28 @@ class Form1(Form1Template):
         label = cluster['label']
         usernames = cluster['usernames']
         sub_label = cluster.get('sub_label')
-  
-        # Generate custom SVG circular badge icon
+
         icon_url = self.create_numbered_icon(count, color, sub_label)
-  
+
         marker = GoogleMap.Marker(
           position=GoogleMap.LatLng(lat, lon),
           icon=icon_url
         )
-  
-        # Bind click event to open paginated modal view of user names
+
         marker.set_event_handler('click', lambda m, un=usernames, lbl=label, **e: self.show_paginated_users(un, lbl))
         self.map_1.add_component(marker)
-  
+
+        if i == 0 and lat and lon:
+          self.map_1.center = GoogleMap.LatLng(lat, lon)
+          self.map_1.zoom = 6 if cluster_type in ['state', 'country'] else 11
+
       anvil.Notification(f"Loaded {len(clusters)} clusters successfully!").show()
-        
+
     except Exception as e:
       anvil.alert(f"Error loading clusters: {e}")
 
-#
-# create_numbered_icon
-#
-
   def create_numbered_icon(self, count, color_hex, sub_label=None):
-    """Generates a circular cluster badge using base64 encoding for the browser"""
+    """Generates a circular cluster badge using base64 encoding"""
     if sub_label:
       svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="56" height="56" viewBox="0 0 56 56">
             <circle cx="28" cy="28" r="26" fill="{color_hex}" stroke="#FFFFFF" stroke-width="2.5"/>
@@ -203,49 +152,41 @@ class Form1(Form1Template):
             <circle cx="20" cy="20" r="18" fill="{color_hex}" stroke="#FFFFFF" stroke-width="2.5"/>
             <text x="20" y="20.5" font-size="13" font-weight="bold" fill="#111111" text-anchor="middle" dominant-baseline="middle">{count}</text>
         </svg>"""
-  
+
     encoded_svg = base64.b64encode(svg.encode('utf-8')).decode('utf-8')
     return f"data:image/svg+xml;base64,{encoded_svg}"
-    
-#
-# show_paginated_users
-#
 
   def show_paginated_users(self, usernames, cluster_label):
     """Opens a paginated dialog displaying users in pages of 50"""
     page_size = 50
     total_pages = max(1, math.ceil(len(usernames) / page_size))
     current_page = 1
-  
+
     while True:
       start = (current_page - 1) * page_size
       end = start + page_size
       page_items = usernames[start:end]
-  
+
       list_display = "\n".join([f"• {name}" for name in page_items]) if page_items else "No users on this page."
-  
+
       content_text = (
         f"Cluster: {cluster_label}\n"
         f"Total Records: {len(usernames)}\n"
         f"Page {current_page} of {total_pages}\n\n"
         f"{list_display}"
       )
-  
+
       buttons = [("Close", "close")]
       if current_page > 1:
         buttons.insert(0, ("Previous Page", "prev"))
       if current_page < total_pages:
         buttons.append(("Next Page", "next"))
-  
+
       action = anvil.alert(content=content_text, title="Cluster Records", buttons=buttons)
-  
+
       if action == "next":
         current_page += 1
       elif action == "prev":
         current_page -= 1
       else:
         break
-
-
-
-    
