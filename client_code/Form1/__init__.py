@@ -9,6 +9,9 @@ from anvil import GoogleMap
 class Form1(Form1Template):
 
   def __init__(self, **properties):
+    # load test data
+    # anvil.server.call('seed_test_data')
+    
     # Set Form properties and Data Bindings
     self.init_components(**properties)
 
@@ -127,7 +130,7 @@ class Form1(Form1Template):
           icon=icon_url
         )
 
-        marker.set_event_handler('click', lambda m, un=usernames, lbl=label, **e: self.show_paginated_users(un, lbl))
+        marker.set_event_handler('click', lambda *args, un=usernames, lbl=label, **kwargs: self.show_paginated_users(un, lbl))
         self.map_1.add_component(marker)
 
         if i == 0 and lat and lon:
