@@ -2,7 +2,51 @@ allow_embedding: false
 db_schema:
   mapitems:
     client: none
-    columns: []
+    columns:
+    - admin_ui: {order: 1, width: 200}
+      client_hidden: false
+      name: user_name
+      type: string
+    - admin_ui: {order: 2, width: 200}
+      client_hidden: false
+      name: address_1
+      type: string
+    - admin_ui: {order: 3, width: 200}
+      client_hidden: false
+      name: address_2
+      type: string
+    - admin_ui: {order: 4, width: 200}
+      client_hidden: false
+      name: city
+      type: string
+    - admin_ui: {order: 5, width: 200}
+      client_hidden: false
+      name: state
+      type: string
+    - admin_ui: {order: 6, width: 200}
+      client_hidden: false
+      name: postal_code
+      type: string
+    - admin_ui: {order: 7, width: 200}
+      client_hidden: false
+      name: country_code
+      type: string
+    - admin_ui: {order: 8, width: 200}
+      client_hidden: false
+      name: latitude
+      type: number
+    - admin_ui: {order: 9, width: 200}
+      client_hidden: false
+      name: longitude
+      type: number
+    - admin_ui: {order: 10, width: 200}
+      client_hidden: false
+      name: formatted_address
+      type: string
+    - admin_ui: {order: 0, width: 200}
+      client_hidden: false
+      name: id
+      type: string
     indexes: []
     server: full
     title: MapItems
