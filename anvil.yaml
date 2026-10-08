@@ -1,9 +1,13 @@
 allow_embedding: false
-name: Minimal Theme 1
-package_name: Minimal_Theme_1
+metadata: {description: Test of Geolocating Mapping Functionality, title: Mapping}
+name: Mapping Test
+package_name: Mapping_Test
 runtime_options:
   client_version: '3'
   server_spec: {base: python310-minimal}
   version: 3
-services: []
+services:
+- client_config: {enable_v2: true}
+  server_config: {}
+  source: /runtime/services/tables.yml
 startup: {module: Form1, type: form}
