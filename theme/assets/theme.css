@@ -273,3 +273,13 @@ textarea.anvil-text-area:disabled,
     font-size: 28px;
   }
 }
+/* Custom Fullscreen Mode for Map Container */
+.map-fullscreen {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  z-index: 99999 !important;
+  background: white;
+}

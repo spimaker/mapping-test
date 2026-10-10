@@ -2,13 +2,18 @@ from ._anvil_designer import Form1Template
 import math
 import base64
 import anvil
+from anvil import *
 import anvil.server
 import anvil.tables as tables
+import anvil.tables.query as q
 from anvil import GoogleMap
+import anvil.js
 
 class Form1(Form1Template):
 
   def __init__(self, **properties):
+    super().__init__(**properties)
+    self.is_fullscreen = False
     # load test data
     # anvil.server.call('seed_test_data2')
 
@@ -47,6 +52,9 @@ class Form1(Form1Template):
 
     # Set initial threshold visibility
     self.update_threshold_visibility()
+
+    # Safely listen for the Escape key globally
+    anvil.js.window.addEventListener('keydown', lambda e: self.handle_keydown(e))
 
   def load_countries(self):
     """Fetch sorted list of countries from the server module"""
@@ -196,3 +204,32 @@ class Form1(Form1Template):
         current_page -= 1
       else:
         break
+
+  @handle("fullscreen_button", "click")
+  def toggle_fullscreen(self, *args, **kwargs):
+    """Shared helper to handle fullscreen state, safely accepting any extra arguments"""
+    self.is_fullscreen = not self.is_fullscreen
+    map_element = anvil.js.get_dom_node(self.map_1)
+
+    if self.is_fullscreen:
+      map_element.classList.add('map-fullscreen')
+      self.fullscreen_button.text = "Exit Full Screen"
+    else:
+      map_element.classList.remove('map-fullscreen')
+      map_element.style.position = ""
+      map_element.style.width = ""
+      map_element.style.height = ""
+      map_element.style.zIndex = ""
+      self.fullscreen_button.text = "Expand Map"
+
+    # Force the browser and Google Maps to recalculate layout dimensions
+    anvil.js.window.dispatchEvent(anvil.js.window.Event('resize'))
+
+  def fullscreen_button_click(self, **event_args):
+    """Triggered when clicking the button (keep your decorator/wiring intact above this)"""
+    self.toggle_fullscreen()
+
+  def handle_keydown(self, event):
+    """Triggered globally when any key is pressed"""
+    if getattr(event, 'key', '') == 'Escape' and self.is_fullscreen:
+      self.toggle_fullscreen()
