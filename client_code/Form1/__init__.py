@@ -19,7 +19,7 @@ class Form1(Form1Template):
 
     # delete test data by ID
     # anvil.server.call('delete_id_range')
-    
+
     # Set Form properties and Data Bindings
     self.init_components(**properties)
 
@@ -47,14 +47,18 @@ class Form1(Form1Template):
     ]
 
     # Set default selections
-    self.Cluster_Type_Dropdown.selected_value = 'miles'
-    self.Threshold_Dropdown.selected_value = 25
+    self.Cluster_Type_Dropdown.selected_value = 'country'
+    # self.Cluster_Type_Dropdown.selected_value = 'miles'
+    # self.Threshold_Dropdown.selected_value = 25
 
     # Set initial threshold visibility
     self.update_threshold_visibility()
 
     # Safely listen for the Escape key globally
     anvil.js.window.addEventListener('keydown', lambda e: self.handle_keydown(e))
+
+    # Load all of the clusters
+    self.Load_Clusters_Button_click()
 
   def load_countries(self):
     """Fetch sorted list of countries from the server module"""
@@ -103,14 +107,20 @@ class Form1(Form1Template):
       if status == 'duplicate':
         anvil.alert("Warning: This is a duplicate record and was not saved.", title="Duplicate Detected")
       elif status == 'saved':
-        anvil.Notification("Successfully saved! Loading clusters...").show()
+        anvil.Notification("Successfully saved! Loading map...").show()
 
-      # Automatically load and render the global clusters
+      # Set cluster view to 1-mile perimeter on save
+      self.Cluster_Type_Dropdown.selected_value = 'miles'
+      self.update_threshold_visibility()
+      self.Threshold_Dropdown.selected_value = 1
+
+      # Reload clusters so the new record is included and clickable
       self.Load_Clusters_Button_click()
 
+      # Center and zoom onto the newly saved coordinate
       if lat and lon:
         self.map_1.center = GoogleMap.LatLng(lat, lon)
-        self.map_1.zoom = 10
+        self.map_1.zoom = 13
 
     except Exception as e:
       anvil.alert(f"An error occurred: {e}")
@@ -172,42 +182,57 @@ class Form1(Form1Template):
 
   def show_paginated_users(self, usernames, cluster_label):
     """Opens a paginated dialog displaying users in pages of 50"""
+    was_fullscreen = self.is_fullscreen
+
+    # Automatically exit full screen so the alert dialog isn't hidden behind the map
+    if was_fullscreen:
+      self.toggle_fullscreen()
+
     page_size = 50
     total_pages = max(1, math.ceil(len(usernames) / page_size))
     current_page = 1
 
-    while True:
-      start = (current_page - 1) * page_size
-      end = start + page_size
-      page_items = usernames[start:end]
+    try:
+      while True:
+        start = (current_page - 1) * page_size
+        end = start + page_size
+        page_items = usernames[start:end]
 
-      list_display = "\n".join([f"• {name}" for name in page_items]) if page_items else "No users on this page."
+        list_display = "\n".join([f"• {name}" for name in page_items]) if page_items else "No users on this page."
 
-      content_text = (
-        f"Cluster: {cluster_label}\n"
-        f"Total Records: {len(usernames)}\n"
-        f"Page {current_page} of {total_pages}\n\n"
-        f"{list_display}"
-      )
+        content_text = (
+          f"Cluster: {cluster_label}\n"
+          f"Total Records: {len(usernames)}\n"
+          f"Page {current_page} of {total_pages}\n\n"
+          f"{list_display}"
+        )
 
-      buttons = [("Close", "close")]
-      if current_page > 1:
-        buttons.insert(0, ("Previous Page", "prev"))
-      if current_page < total_pages:
-        buttons.append(("Next Page", "next"))
+        buttons = [("Close", "close")]
+        if current_page > 1:
+          buttons.insert(0, ("Previous Page", "prev"))
+        if current_page < total_pages:
+          buttons.append(("Next Page", "next"))
 
-      action = anvil.alert(content=content_text, title="Cluster Records", buttons=buttons)
+        action = anvil.alert(content=content_text, title="Cluster Records", buttons=buttons)
 
-      if action == "next":
-        current_page += 1
-      elif action == "prev":
-        current_page -= 1
-      else:
-        break
+        if action == "next":
+          current_page += 1
+        elif action == "prev":
+          current_page -= 1
+        else:
+          break
+    finally:
+      # Once the alert dialog is fully closed, trigger a delayed resize 
+      # so Google Maps recalculates its canvas and redraws markers perfectly.
+      if was_fullscreen:
+        anvil.js.window.setTimeout(
+          lambda: anvil.js.window.dispatchEvent(anvil.js.window.Event('resize')), 
+          150
+        )
 
-  @handle("fullscreen_button", "click")
+  @anvil.handle("fullscreen_button", "click")
   def toggle_fullscreen(self, *args, **kwargs):
-    """Shared helper to handle fullscreen state, safely accepting any extra arguments"""
+    """Shared helper to handle fullscreen state"""
     self.is_fullscreen = not self.is_fullscreen
     map_element = anvil.js.get_dom_node(self.map_1)
 
@@ -217,16 +242,15 @@ class Form1(Form1Template):
     else:
       map_element.classList.remove('map-fullscreen')
       map_element.style.position = ""
-      map_element.style.width = ""
-      map_element.style.height = ""
       map_element.style.zIndex = ""
       self.fullscreen_button.text = "Expand Map"
 
-    # Force the browser and Google Maps to recalculate layout dimensions
+    # Force the browser window and the map DOM element to recalculate dimensions safely
     anvil.js.window.dispatchEvent(anvil.js.window.Event('resize'))
+    map_element.dispatchEvent(anvil.js.window.Event('resize'))
 
   def fullscreen_button_click(self, **event_args):
-    """Triggered when clicking the button (keep your decorator/wiring intact above this)"""
+    """Triggered when clicking the button"""
     self.toggle_fullscreen()
 
   def handle_keydown(self, event):
