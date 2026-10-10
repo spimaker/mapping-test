@@ -10,7 +10,10 @@ class Form1(Form1Template):
 
   def __init__(self, **properties):
     # load test data
-    # anvil.server.call('seed_test_data')
+    # anvil.server.call('seed_test_data2')
+
+    # delete test data by ID
+    # anvil.server.call('delete_id_range')
     
     # Set Form properties and Data Bindings
     self.init_components(**properties)
