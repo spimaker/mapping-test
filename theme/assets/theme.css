@@ -283,3 +283,7 @@ textarea.anvil-text-area:disabled,
   z-index: 99999 !important;
   background: white;
 }
+
+.modal, .modal-backdrop {
+  z-index: 100000 !important;
+}

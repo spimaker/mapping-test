@@ -181,12 +181,19 @@ class Form1(Form1Template):
     return f"data:image/svg+xml;base64,{encoded_svg}"
 
   def show_paginated_users(self, usernames, cluster_label):
-    """Opens a paginated dialog displaying users in pages of 50"""
+    """Opens a paginated dialog displaying users, then restores full screen on close"""
     was_fullscreen = self.is_fullscreen
 
-    # Automatically exit full screen so the alert dialog isn't hidden behind the map
+    # If we are in full screen, temporarily exit so the alert renders cleanly
     if was_fullscreen:
-      self.toggle_fullscreen()
+      self.is_fullscreen = False
+      map_element = anvil.js.get_dom_node(self.map_1)
+      map_element.classList.remove('map-fullscreen')
+      map_element.style.position = ""
+      map_element.style.zIndex = ""
+      self.fullscreen_button.text = "Expand Map"
+      anvil.js.window.dispatchEvent(anvil.js.window.Event('resize'))
+      map_element.dispatchEvent(anvil.js.window.Event('resize'))
 
     page_size = 50
     total_pages = max(1, math.ceil(len(usernames) / page_size))
@@ -222,13 +229,17 @@ class Form1(Form1Template):
         else:
           break
     finally:
-      # Once the alert dialog is fully closed, trigger a delayed resize 
-      # so Google Maps recalculates its canvas and redraws markers perfectly.
+      # Automatically pop back into full screen once the dialog is closed (via X or Close button)
       if was_fullscreen:
-        anvil.js.window.setTimeout(
-          lambda: anvil.js.window.dispatchEvent(anvil.js.window.Event('resize')), 
-          150
-        )
+        def restore_fullscreen():
+          self.is_fullscreen = True
+          map_element = anvil.js.get_dom_node(self.map_1)
+          map_element.classList.add('map-fullscreen')
+          self.fullscreen_button.text = "Exit Full Screen"
+          anvil.js.window.dispatchEvent(anvil.js.window.Event('resize'))
+          map_element.dispatchEvent(anvil.js.window.Event('resize'))
+
+        anvil.js.window.setTimeout(restore_fullscreen, 100)
 
   @anvil.handle("fullscreen_button", "click")
   def toggle_fullscreen(self, *args, **kwargs):
