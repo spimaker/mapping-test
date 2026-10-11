@@ -47,22 +47,22 @@ class Form1(Form1Template):
     ]
 
     # Set default selections
-    self.Cluster_Type_Dropdown.selected_value = 'country'
-    # self.Cluster_Type_Dropdown.selected_value = 'miles'
-    # self.Threshold_Dropdown.selected_value = 25
+    self.Cluster_Type_Dropdown.selected_value = 'miles'
+    self.Threshold_Dropdown.selected_value = 25
 
-    # Load initial clusters and center map on user location (or Los Angeles fallback)
+    # 1. DEFINE COORDINATES FIRST so they exist before the map loads
+    self.current_lat = 34.0522
+    self.current_lon = -118.2437
+
+    # 2. NOW initialize map and trigger geolocation safely
     self.initialize_map_with_geolocation()
-    
+
     # Set initial threshold visibility
     self.update_threshold_visibility()
 
     # Safely listen for the Escape key globally
     anvil.js.window.addEventListener('keydown', lambda e: self.handle_keydown(e))
-
-    # Load all of the clusters
-    self.Load_Clusters_Button_click()
-
+    
   def load_countries(self):
     """Fetch sorted list of countries from the server module and add a blank default"""
     try:
@@ -387,55 +387,81 @@ class Form1(Form1Template):
 
 
   def initialize_map_with_geolocation(self):
-    """Loads initial clusters and centers on user geolocation, falling back to Los Angeles, CA."""
+    """Requests browser location and loads 25-mile clusters around user or LA fallback."""
+    self.Cluster_Type_Dropdown.selected_value = 'miles'
+    self.Threshold_Dropdown.selected_value = 25
+    self.update_threshold_visibility()
+
+    def fetch_and_display(lat, lon, zoom_level):
+      try:
+        self.current_lat = lat
+        self.current_lon = lon
+        cluster_type = self.Cluster_Type_Dropdown.selected_value
+        threshold = self.Threshold_Dropdown.selected_value
+
+        clusters = anvil.server.call(
+          'get_clustered_data', 
+          cluster_type=cluster_type, 
+          threshold=threshold, 
+          center_lat=self.current_lat, 
+          center_lon=self.current_lon
+        )
+
+        result = {
+          'clusters': clusters,
+          'latitude': self.current_lat,
+          'longitude': self.current_lon,
+          'zoom': zoom_level
+        }
+
+        self.display_clusters_on_map(result)
+        anvil.Notification(f"Loaded {len(clusters)} clusters within 25 miles.").show()
+      except Exception as e:
+        anvil.alert(f"Error loading clusters: {e}")
+
+    def success(position):
+      try:
+        lat = position.coords.latitude
+        lon = position.coords.longitude
+        fetch_and_display(lat, lon, 11)
+      except Exception:
+        fetch_and_display(34.0522, -118.2437, 10)
+
+    def error(err):
+      fetch_and_display(34.0522, -118.2437, 10)
+
+    if hasattr(anvil.js.window.navigator, 'geolocation'):
+      anvil.js.window.navigator.geolocation.getCurrentPosition(
+        success, 
+        error, 
+        {'timeout': 5000, 'maximumAge': 60000}
+      )
+    else:
+      fetch_and_display(34.0522, -118.2437, 10)
+      
+  @anvil.handle("Load_Clusters_Button", "click")
+  def Load_Clusters_Button_click(self, **event_args):
+    """Triggered when loading clusters, maintaining the current map center"""
     cluster_type = self.Cluster_Type_Dropdown.selected_value
     threshold = self.Threshold_Dropdown.selected_value if cluster_type in ['miles', 'kilometers'] else None
 
     try:
-      clusters = anvil.server.call('get_clustered_data', cluster_type=cluster_type, threshold=threshold)
-
-      # Format result and render markers
-      valid_coords = [(c['latitude'], c['longitude']) for c in clusters if c.get('latitude') and c.get('longitude')]
+      clusters = anvil.server.call(
+        'get_clustered_data', 
+        cluster_type=cluster_type, 
+        threshold=threshold, 
+        center_lat=self.current_lat, 
+        center_lon=self.current_lon
+      )
 
       result = {
         'clusters': clusters,
-        'latitude': None, # We will set the center via geolocation below
-        'longitude': None,
-        'zoom': 11
+        'latitude': self.current_lat,
+        'longitude': self.current_lon,
+        'zoom': self.map_1.zoom
       }
 
-      # Render the markers without setting an arbitrary cluster center yet
       self.display_clusters_on_map(result)
-
-      # Define fallback to Los Angeles, CA
-      def set_la_fallback():
-        self.map_1.center = GoogleMap.LatLng(34.0522, -118.2437)
-        self.map_1.zoom = 10
-
-      # Geolocation success callback
-      def success(position):
-        try:
-          lat = position.coords.latitude
-          lon = position.coords.longitude
-          self.map_1.center = GoogleMap.LatLng(lat, lon)
-          self.map_1.zoom = 11
-        except Exception:
-          set_la_fallback()
-
-      # Geolocation error/timeout callback
-      def error(err):
-        set_la_fallback()
-
-      # Attempt to fetch browser geolocation with a 5-second timeout
-      if hasattr(anvil.js.window.navigator, 'geolocation'):
-        anvil.js.window.navigator.geolocation.getCurrentPosition(
-          success, 
-          error, 
-          {'timeout': 5000, 'maximumAge': 60000}
-        )
-      else:
-        set_la_fallback()
-
       anvil.Notification(f"Loaded {len(clusters)} clusters successfully!").show()
 
     except Exception as e:

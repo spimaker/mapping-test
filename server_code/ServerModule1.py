@@ -15,7 +15,6 @@ import uuid
 import requests
 import math
 
-
 #
 # get_country_list
 #
@@ -127,104 +126,65 @@ def save_map_item(form_data):
 #
 
 @anvil.server.callable
-def get_clustered_data(cluster_type, threshold=None):
-  rows = list(app_tables.mapitems.search())
+def get_clustered_data(cluster_type='miles', threshold=25, center_lat=None, center_lon=None):
+  """
+    Returns clustered data based on cluster type and threshold, 
+    centered around user location or defaults to Los Angeles.
+    """
+  # Default to Los Angeles if no center coordinates provided
+  if center_lat is None or center_lon is None:
+    center_lat = 34.0522
+    center_lon = -118.2437
+
+  all_items = list(app_tables.mapitems.search())
+  filtered_items = all_items
+
+  # If miles/kilometers perimeter is selected, filter by distance from the center point
+  if cluster_type in ['miles', 'kilometers'] and threshold:
+    filtered_items = []
+    for row in all_items:
+      lat = row.get('latitude') or row.get('Latitude_Value')
+      lon = row.get('longitude') or row.get('Longitude_Value')
+      if lat is not None and lon is not None:
+        dist = calculate_distance_miles(center_lat, center_lon, lat, lon)
+        limit = threshold if cluster_type == 'miles' else threshold * 0.621371 # km to miles
+        if dist <= limit:
+          filtered_items.append(row)
+
+    # Build clusters from the filtered items
+  coord_map = {}
+  for row in filtered_items:
+    lat = row.get('latitude') or row.get('Latitude_Value')
+    lon = row.get('longitude') or row.get('Longitude_Value')
+
+    if lat is not None and lon is not None:
+      key = (round(lat, 5), round(lon, 5))
+      if key not in coord_map:
+        coord_map[key] = {
+          'latitude': lat,
+          'longitude': lon,
+          'usernames': []
+        }
+      username = row.get('user_name') or row.get('User_Name_Value', 'Unknown User')
+      if username not in coord_map[key]['usernames']:
+        coord_map[key]['usernames'].append(username)
+
   clusters = []
-
-  COLOR_MAP = {
-    'miles': '#90EE90',       # Light Green
-    'kilometers': '#006400',  # Dark Green
-    'postal': '#1E90FF',      # Blue (Updated from postal_code)
-    'city': '#FFD700',        # Yellow
-    'state': '#FFA500',       # Orange
-    'country': '#FF0000'      # Red
-  }
-
-  # Fixed: Changed 'postal_code' to 'postal' to match client dropdown value
-  if cluster_type in ['postal', 'city', 'state', 'country']:
-    field_mapping = {
-      'postal': 'postal_code',
-      'city': 'city',
-      'state': 'state',
-      'country': 'country_code'
-    }
-    type_code_mapping = {
-      'postal': 'Post',
-      'city': 'City',
-      'state': 'St',
-      'country': 'Ctry'
-    }
-
-    key_field = field_mapping[cluster_type]
-    sub_label_code = type_code_mapping[cluster_type]
-
-    groups = {}
-    for row in rows:
-      val = row[key_field] or "Unknown"
-      if val not in groups:
-        groups[val] = []
-      groups[val].append(row)
-
-    for group_key, group_rows in groups.items():
-      valid_rows = [r for r in group_rows if r['latitude'] and r['longitude']]
-      if not valid_rows:
-        continue
-
-      # Centroid calculation (already correct in your code)
-      avg_lat = sum(r['latitude'] for r in valid_rows) / len(valid_rows)
-      avg_lon = sum(r['longitude'] for r in valid_rows) / len(valid_rows)
-
-      clusters.append({
-        'label': f"{cluster_type.capitalize()}: {group_key}",
-        'latitude': avg_lat,
-        'longitude': avg_lon,
-        'count': len(valid_rows),
-        'sub_label': sub_label_code,
-        'usernames': [r['user_name'] for r in valid_rows if r['user_name']],
-        'color': COLOR_MAP.get(cluster_type, '#0000FF')
-      })
-
-  elif cluster_type in ['miles', 'kilometers']:
-    max_dist = float(threshold) if threshold else 25.0
-    unit_label = "Mi" if cluster_type == 'miles' else "Km"
-    perimeter_str = f"{int(max_dist)} {unit_label}"
-
-    ungrouped = [r for r in rows if r['latitude'] and r['longitude']]
-
-    while ungrouped:
-      seed = ungrouped.pop(0)
-      seed_coords = (seed['latitude'], seed['longitude'])
-      cluster_rows = [seed]
-
-      remaining = []
-      for r in ungrouped:
-        r_coords = (r['latitude'], r['longitude'])
-        dist = geodesic(seed_coords, r_coords).miles if cluster_type == 'miles' else geodesic(seed_coords, r_coords).kilometers
-
-        if dist <= max_dist:
-          cluster_rows.append(r)
-        else:
-          remaining.append(r)
-      ungrouped = remaining
-
-      avg_lat = sum(r['latitude'] for r in cluster_rows) / len(cluster_rows)
-      avg_lon = sum(r['longitude'] for r in cluster_rows) / len(cluster_rows)
-
-      color_key = 'miles' if cluster_type == 'miles' else 'kilometers'
-      clusters.append({
-        'label': f"Radius Cluster ({perimeter_str})",
-        'latitude': avg_lat,
-        'longitude': avg_lon,
-        'count': len(cluster_rows),
-        'sub_label': perimeter_str,
-        'usernames': [r['user_name'] for r in cluster_rows if r['user_name']],
-        'color': COLOR_MAP.get(color_key, '#006400')
-      })
+  for key, data in coord_map.items():
+    count = len(data['usernames'])
+    clusters.append({
+      'latitude': data['latitude'],
+      'longitude': data['longitude'],
+      'count': count,
+      'color': '#34A853',
+      'label': f"Area Cluster ({count} records)",
+      'usernames': data['usernames'],
+      'sub_label': None
+    })
 
   return clusters
 
-import requests
-import math
+
 
 def calculate_distance_miles(lat1, lon1, lat2, lon2):
   """Calculate the great-circle distance between two points on the Earth in miles."""
