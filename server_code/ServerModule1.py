@@ -12,6 +12,8 @@ import pycountry
 from geopy.geocoders import Nominatim
 from geopy.distance import geodesic
 import uuid
+import requests
+import math
 
 
 #
@@ -220,3 +222,144 @@ def get_clustered_data(cluster_type, threshold=None):
       })
 
   return clusters
+
+import requests
+import math
+
+def calculate_distance_miles(lat1, lon1, lat2, lon2):
+  """Calculate the great-circle distance between two points on the Earth in miles."""
+  if None in (lat1, lon1, lat2, lon2):
+    return float('inf')
+
+  R = 3958.8  # Radius of the Earth in miles
+  dlat = math.radians(lat2 - lat1)
+  dlon = math.radians(lon2 - lon1)
+  a = (math.sin(dlat / 2) ** 2 +
+       math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) *
+       math.sin(dlon / 2) ** 2)
+  c = 2 * math.asin(math.sqrt(a))
+  return R * c
+
+def geocode_address_string(address_str):
+  """Geocodes an address string using OpenStreetMap Nominatim (free, no API key required)."""
+  try:
+    url = "https://nominatim.openstreetmap.org/search"
+    headers = {'User-Agent': 'AnvilMapApp/1.0'}
+    params = {'q': address_str, 'format': 'json', 'limit': 1}
+    response = requests.get(url, params=params, headers=headers, timeout=5)
+    data = response.json()
+    if data:
+      return float(data[0]['lat']), float(data[0]['lon'])
+  except Exception as e:
+    print(f"Geocoding error: {e}")
+  return None, None
+
+@anvil.server.callable
+def search_map_items_by_fields(search_data):
+  """
+    1. Tries exact/partial text match.
+    2. If 0 results are found, geocodes the input and returns all records within 10 miles.
+    """
+  print("--- SEARCH DEBUG ---")
+  print("Received search_data:", search_data)
+
+  addr1 = search_data.get('Address1_Value', '').strip()
+  city = search_data.get('City_Value', '').strip()
+  state = search_data.get('State_Province_Region_Value', '').strip()
+  postal = search_data.get('Postal_Code_Value', '').strip()
+  country = search_data.get('Country_Code_Value', '').strip()
+
+  # Step 1: Try direct text search first
+  search_args = {}
+  if addr1:
+    search_args['address_1'] = q.ilike(f"%{addr1}%")
+  if city:
+    search_args['city'] = q.ilike(f"%{city}%")
+  if state:
+    search_args['state'] = q.ilike(f"%{state}%")
+  if postal:
+    search_args['postal_code'] = q.ilike(f"%{postal}%")
+  if country:
+    search_args['country_code'] = country
+
+  matching_rows = list(app_tables.mapitems.search(**search_args)) if search_args else []
+  print(f"Direct text search found {len(matching_rows)} matching rows.")
+
+  center_lat = None
+  center_lon = None
+  zoom = 11
+
+  # Step 2: Fallback to 10-mile radius search if direct text search found nothing and we have address info
+  if not matching_rows and (addr1 or city):
+    # Build full address string to geocode
+    address_parts = [p for p in [addr1, city, state, postal, country] if p]
+    full_query = ", ".join(address_parts)
+    print(f"Direct match failed. Geocoding query: '{full_query}'")
+
+    center_lat, center_lon = geocode_address_string(full_query)
+
+    if center_lat and center_lon:
+      print(f"Geocoded successfully to: {center_lat}, {center_lon}")
+      # Scan all table items and find those within 10 miles
+      all_items = app_tables.mapitems.search()
+      for row in all_items:
+        r_lat = row.get('latitude') or row.get('Latitude_Value')
+        r_lon = row.get('longitude') or row.get('Longitude_Value')
+        if r_lat and r_lon:
+          dist = calculate_distance_miles(center_lat, center_lon, r_lat, r_lon)
+          if dist <= 10:  # Within 10-mile radius
+            matching_rows.append(row)
+      print(f"Radius search found {len(matching_rows)} records within 10 miles.")
+      zoom = 12
+    else:
+      print("Geocoding failed to return coordinates.")
+
+    # Format results into clusters
+  clusters = []
+  valid_coords = []
+  coord_map = {}
+
+  for row in matching_rows:
+    lat = row.get('latitude') or row.get('Latitude_Value')
+    lon = row.get('longitude') or row.get('Longitude_Value')
+
+    if lat is not None and lon is not None:
+      valid_coords.append((lat, lon))
+      key = (round(lat, 5), round(lon, 5))
+      if key not in coord_map:
+        coord_map[key] = {
+          'latitude': lat,
+          'longitude': lon,
+          'usernames': []
+        }
+      username = row.get('user_name') or row.get('User_Name_Value', 'Unknown User')
+      if username not in coord_map[key]['usernames']:
+        coord_map[key]['usernames'].append(username)
+
+  for key, data in coord_map.items():
+    count = len(data['usernames'])
+    clusters.append({
+      'latitude': data['latitude'],
+      'longitude': data['longitude'],
+      'count': count,
+      'color': '#34A853',
+      'label': f"Search Match ({count} records)",
+      'usernames': data['usernames'],
+      'sub_label': None
+    })
+
+    # If we didn't get center_lat from geocoding, calculate average from results
+  if not center_lat and valid_coords:
+    center_lat = sum(lat for lat, lon in valid_coords) / len(valid_coords)
+    center_lon = sum(lon for lat, lon in valid_coords) / len(valid_coords)
+    if addr1:
+      zoom = 15
+    elif city or postal:
+      zoom = 12
+
+  return {
+    'clusters': clusters,
+    'latitude': center_lat,
+    'longitude': center_lon,
+    'zoom': zoom
+  }

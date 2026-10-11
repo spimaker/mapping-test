@@ -85,18 +85,7 @@ class Form1(Form1Template):
   @anvil.handle("Save_Button", "click")
   def save_button_click(self, **event_args):
     """This method is called when the Save button is clicked"""
-    form_data = {
-      'User_Name_Value': self.User_Name_Value.text,
-      'Address1_Value': self.Address1_Value.text,
-      'Address2_Value': self.Address2_Value.text,
-      'City_Value': self.City_Value.text,
-      'State_Province_Region_Value': self.State_Province_Region_Value.text,
-      'Postal_Code_Value': self.Postal_Code_Value.text,
-      'Country_Code_Value': self.Country_Code_Value.selected_value,
-      'Latitude_Value': float(self.Latitude_Value.text) if self.Latitude_Value.text else None,
-      'Longitude_Value': float(self.Longitude_Value.text) if self.Longitude_Value.text else None,
-      'Formatted_Address_Value': self.Formatted_Address_Value.text
-    }
+    form_data = self._get_address_input_data()
 
     try:
       result = anvil.server.call('save_map_item', form_data)
@@ -124,6 +113,63 @@ class Form1(Form1Template):
 
     except Exception as e:
       anvil.alert(f"An error occurred: {e}")
+
+  @anvil.handle("Search_Button", "click")
+  def search_button_click(self, **event_args):
+    """This method is called when the Search button is clicked"""
+    search_data = self._get_address_input_data()
+
+    # Check if at least one primary address field has text
+    active_fields = [
+      search_data['Address1_Value'], search_data['City_Value'], 
+      search_data['State_Province_Region_Value'], search_data['Postal_Code_Value']
+    ]
+    if not any(active_fields) and not search_data['Country_Code_Value']:
+      anvil.alert("Please enter search parameters in at least one field.", title="Empty Search")
+      return
+
+    try:
+      anvil.Notification("Searching map records...").show()
+
+      # Call server to process search logic (10-mile radius for full address, or regional match)
+      search_result = anvil.server.call('search_map_items_by_fields', search_data)
+
+      clusters = search_result.get('clusters', [])
+      center_lat = search_result.get('latitude')
+      center_lon = search_result.get('longitude')
+      zoom_level = search_result.get('zoom', 11)
+
+      self.map_1.clear()
+
+      # Plot search results
+      for i, cluster in enumerate(clusters):
+        lat = cluster['latitude']
+        lon = cluster['longitude']
+        count = cluster['count']
+        color = cluster['color']
+        label = cluster['label']
+        usernames = cluster['usernames']
+        sub_label = cluster.get('sub_label')
+
+        icon_url = self.create_numbered_icon(count, color, sub_label)
+
+        marker = GoogleMap.Marker(
+          position=GoogleMap.LatLng(lat, lon),
+          icon=icon_url
+        )
+
+        marker.set_event_handler('click', lambda *args, un=usernames, lbl=label, **kwargs: self.show_paginated_users(un, lbl))
+        self.map_1.add_component(marker)
+
+      # Center and zoom onto search results
+      if center_lat and center_lon:
+        self.map_1.center = GoogleMap.LatLng(center_lat, center_lon)
+        self.map_1.zoom = zoom_level
+
+      anvil.Notification(f"Found {len(clusters)} matching locations!").show()
+
+    except Exception as e:
+      anvil.alert(f"Search error: {e}")   
 
   @anvil.handle("Load_Clusters_Button", "click")
   def Load_Clusters_Button_click(self, **event_args):
@@ -268,3 +314,18 @@ class Form1(Form1Template):
     """Triggered globally when any key is pressed"""
     if getattr(event, 'key', '') == 'Escape' and self.is_fullscreen:
       self.toggle_fullscreen()
+
+  def _get_address_input_data(self):
+    """Helper method to collect form input values cleanly and avoid duplication."""
+    return {
+      'User_Name_Value': self.User_Name_Value.text if hasattr(self, 'User_Name_Value') else None,
+      'Address1_Value': self.Address1_Value.text,
+      'Address2_Value': self.Address2_Value.text,
+      'City_Value': self.City_Value.text,
+      'State_Province_Region_Value': self.State_Province_Region_Value.text,
+      'Postal_Code_Value': self.Postal_Code_Value.text,
+      'Country_Code_Value': self.Country_Code_Value.selected_value,
+      'Latitude_Value': float(self.Latitude_Value.text) if getattr(self, 'Latitude_Value', None) and self.Latitude_Value.text else None,
+      'Longitude_Value': float(self.Longitude_Value.text) if getattr(self, 'Longitude_Value', None) and self.Longitude_Value.text else None,
+      'Formatted_Address_Value': self.Formatted_Address_Value.text if hasattr(self, 'Formatted_Address_Value') else None
+    }   
