@@ -51,6 +51,9 @@ class Form1(Form1Template):
     # self.Cluster_Type_Dropdown.selected_value = 'miles'
     # self.Threshold_Dropdown.selected_value = 25
 
+    # Load initial clusters and center map on user location (or Los Angeles fallback)
+    self.initialize_map_with_geolocation()
+    
     # Set initial threshold visibility
     self.update_threshold_visibility()
 
@@ -61,10 +64,16 @@ class Form1(Form1Template):
     self.Load_Clusters_Button_click()
 
   def load_countries(self):
-    """Fetch sorted list of countries from the server module"""
+    """Fetch sorted list of countries from the server module and add a blank default"""
     try:
       country_items = anvil.server.call('get_country_list')
-      self.Country_Code_Value.items = country_items
+
+      # Prepend a blank option so it doesn't default to the first item (Afghanistan)
+      self.Country_Code_Value.items = [("-- Select Country --", None)] + country_items
+
+      # Ensure nothing is selected by default
+      self.Country_Code_Value.selected_value = None
+
     except Exception as e:
       print(f"Error loading countries: {e}")
 
@@ -114,62 +123,84 @@ class Form1(Form1Template):
     except Exception as e:
       anvil.alert(f"An error occurred: {e}")
 
+      
   @anvil.handle("Search_Button", "click")
   def search_button_click(self, **event_args):
-    """This method is called when the Search button is clicked"""
+    """Triggered when the user clicks the search button"""
     search_data = self._get_address_input_data()
 
-    # Check if at least one primary address field has text
-    active_fields = [
-      search_data['Address1_Value'], search_data['City_Value'], 
-      search_data['State_Province_Region_Value'], search_data['Postal_Code_Value']
-    ]
-    if not any(active_fields) and not search_data['Country_Code_Value']:
-      anvil.alert("Please enter search parameters in at least one field.", title="Empty Search")
-      return
-
     try:
-      anvil.Notification("Searching map records...").show()
+      result = anvil.server.call('search_map_items_by_fields', search_data)
 
-      # Call server to process search logic (10-mile radius for full address, or regional match)
-      search_result = anvil.server.call('search_map_items_by_fields', search_data)
+      # Check if multiple cities matched the query
+      if result.get('status') == 'disambiguation_needed':
+        options = result['options']
 
-      clusters = search_result.get('clusters', [])
-      center_lat = search_result.get('latitude')
-      center_lon = search_result.get('longitude')
-      zoom_level = search_result.get('zoom', 11)
+        # Build dropdown items: (Display Label, option dict)
+        dropdown_items = [(opt['display_name'], opt) for opt in options]
+        selection_dropdown = DropDown(items=dropdown_items)
 
-      self.map_1.clear()
-
-      # Plot search results
-      for i, cluster in enumerate(clusters):
-        lat = cluster['latitude']
-        lon = cluster['longitude']
-        count = cluster['count']
-        color = cluster['color']
-        label = cluster['label']
-        usernames = cluster['usernames']
-        sub_label = cluster.get('sub_label')
-
-        icon_url = self.create_numbered_icon(count, color, sub_label)
-
-        marker = GoogleMap.Marker(
-          position=GoogleMap.LatLng(lat, lon),
-          icon=icon_url
+        # Show an alert dialog with the dropdown selector
+        user_chose = alert(
+          content=selection_dropdown,
+          title="Multiple Locations Found",
+          buttons=[("Select Location", True), ("Cancel", False)]
         )
 
-        marker.set_event_handler('click', lambda *args, un=usernames, lbl=label, **kwargs: self.show_paginated_users(un, lbl))
-        self.map_1.add_component(marker)
+        if user_chose and selection_dropdown.selected_value:
+          chosen_opt = selection_dropdown.selected_value
 
-      # Center and zoom onto search results
-      if center_lat and center_lon:
-        self.map_1.center = GoogleMap.LatLng(center_lat, center_lon)
-        self.map_1.zoom = zoom_level
+          # Pass the selected latitude/longitude back to the server search
+          search_data['Selected_Latitude'] = chosen_opt['latitude']
+          search_data['Selected_Longitude'] = chosen_opt['longitude']
 
-      anvil.Notification(f"Found {len(clusters)} matching locations!").show()
+          # Also pre-fill the form fields for clarity
+          self.City_Value.text = chosen_opt['city']
+          self.State_Province_Region_Value.text = chosen_opt['state']
+
+          # Re-run search with the specific coordinates
+          result = anvil.server.call('search_map_items_by_fields', search_data)
+        else:
+          return # User cancelled selection
+
+      # Render the final search results on the map
+      self.display_clusters_on_map(result)
 
     except Exception as e:
-      anvil.alert(f"Search error: {e}")   
+      alert(str(e))
+      
+  def display_clusters_on_map(self, result):
+    """Takes result dictionary from server and renders clusters and map center."""
+    clusters = result.get('clusters', [])
+    lat = result.get('latitude')
+    lon = result.get('longitude')
+    zoom = result.get('zoom', 11)
+
+    self.map_1.clear()
+
+    for i, cluster in enumerate(clusters):
+      c_lat = cluster['latitude']
+      c_lon = cluster['longitude']
+      count = cluster['count']
+      color = cluster['color']
+      label = cluster['label']
+      usernames = cluster['usernames']
+      sub_label = cluster.get('sub_label')
+
+      icon_url = self.create_numbered_icon(count, color, sub_label)
+
+      marker = GoogleMap.Marker(
+        position=GoogleMap.LatLng(c_lat, c_lon),
+        icon=icon_url
+      )
+
+      marker.set_event_handler('click', lambda *args, un=usernames, lbl=label, **kwargs: self.show_paginated_users(un, lbl))
+      self.map_1.add_component(marker)
+
+    # Center and zoom the map based on the result coordinates
+    if lat and lon:
+      self.map_1.center = GoogleMap.LatLng(lat, lon)
+      self.map_1.zoom = zoom
 
   @anvil.handle("Load_Clusters_Button", "click")
   def Load_Clusters_Button_click(self, **event_args):
@@ -179,36 +210,25 @@ class Form1(Form1Template):
 
     try:
       clusters = anvil.server.call('get_clustered_data', cluster_type=cluster_type, threshold=threshold)
-      self.map_1.clear()
 
-      for i, cluster in enumerate(clusters):
-        lat = cluster['latitude']
-        lon = cluster['longitude']
-        count = cluster['count']
-        color = cluster['color']
-        label = cluster['label']
-        usernames = cluster['usernames']
-        sub_label = cluster.get('sub_label')
+      # Format cluster response into the standard result dictionary structure
+      valid_coords = [(c['latitude'], c['longitude']) for c in clusters if c.get('latitude') and c.get('longitude')]
+      center_lat = sum(lat for lat, lon in valid_coords) / len(valid_coords) if valid_coords else None
+      center_lon = sum(lon for lat, lon in valid_coords) / len(valid_coords) if valid_coords else None
 
-        icon_url = self.create_numbered_icon(count, color, sub_label)
+      result = {
+        'clusters': clusters,
+        'latitude': center_lat,
+        'longitude': center_lon,
+        'zoom': 6 if cluster_type in ['state', 'country'] else 11
+      }
 
-        marker = GoogleMap.Marker(
-          position=GoogleMap.LatLng(lat, lon),
-          icon=icon_url
-        )
-
-        marker.set_event_handler('click', lambda *args, un=usernames, lbl=label, **kwargs: self.show_paginated_users(un, lbl))
-        self.map_1.add_component(marker)
-
-        if i == 0 and lat and lon:
-          self.map_1.center = GoogleMap.LatLng(lat, lon)
-          self.map_1.zoom = 6 if cluster_type in ['state', 'country'] else 11
-
+      self.display_clusters_on_map(result)
       anvil.Notification(f"Loaded {len(clusters)} clusters successfully!").show()
 
     except Exception as e:
       anvil.alert(f"Error loading clusters: {e}")
-
+      
   def create_numbered_icon(self, count, color_hex, sub_label=None):
     """Generates a circular cluster badge using base64 encoding"""
     if sub_label:
@@ -329,3 +349,94 @@ class Form1(Form1Template):
       'Longitude_Value': float(self.Longitude_Value.text) if getattr(self, 'Longitude_Value', None) and self.Longitude_Value.text else None,
       'Formatted_Address_Value': self.Formatted_Address_Value.text if hasattr(self, 'Formatted_Address_Value') else None
     }   
+
+
+  @anvil.handle("Clear_Button", "click")
+  def clear_button_click(self, **event_args):
+    """Clears all address/input fields and resets dropdowns on the form"""
+
+    # List of all text input fields to clear
+    text_fields = [
+      'User_Name_Value', 
+      'Address1_Value', 
+      'Address2_Value', 
+      'City_Value', 
+      'State_Province_Region_Value', 
+      'Postal_Code_Value', 
+      'Latitude_Value', 
+      'Longitude_Value', 
+      'Formatted_Address_Value'
+    ]
+
+    # Safely clear text boxes if they exist on the form
+    for field_name in text_fields:
+      if hasattr(self, field_name):
+        field = getattr(self, field_name)
+        if field:
+          field.text = ""
+
+    # Reset the country dropdown back to the blank selection
+    if hasattr(self, 'Country_Code_Value'):
+      self.Country_Code_Value.selected_value = None
+
+    # Optional: If you also want it to reload the full map clusters when cleared, 
+    # you can uncomment the line below:
+    # self.Load_Clusters_Button_click()
+
+    anvil.Notification("Form cleared.").show()
+
+
+  def initialize_map_with_geolocation(self):
+    """Loads initial clusters and centers on user geolocation, falling back to Los Angeles, CA."""
+    cluster_type = self.Cluster_Type_Dropdown.selected_value
+    threshold = self.Threshold_Dropdown.selected_value if cluster_type in ['miles', 'kilometers'] else None
+
+    try:
+      clusters = anvil.server.call('get_clustered_data', cluster_type=cluster_type, threshold=threshold)
+
+      # Format result and render markers
+      valid_coords = [(c['latitude'], c['longitude']) for c in clusters if c.get('latitude') and c.get('longitude')]
+
+      result = {
+        'clusters': clusters,
+        'latitude': None, # We will set the center via geolocation below
+        'longitude': None,
+        'zoom': 11
+      }
+
+      # Render the markers without setting an arbitrary cluster center yet
+      self.display_clusters_on_map(result)
+
+      # Define fallback to Los Angeles, CA
+      def set_la_fallback():
+        self.map_1.center = GoogleMap.LatLng(34.0522, -118.2437)
+        self.map_1.zoom = 10
+
+      # Geolocation success callback
+      def success(position):
+        try:
+          lat = position.coords.latitude
+          lon = position.coords.longitude
+          self.map_1.center = GoogleMap.LatLng(lat, lon)
+          self.map_1.zoom = 11
+        except Exception:
+          set_la_fallback()
+
+      # Geolocation error/timeout callback
+      def error(err):
+        set_la_fallback()
+
+      # Attempt to fetch browser geolocation with a 5-second timeout
+      if hasattr(anvil.js.window.navigator, 'geolocation'):
+        anvil.js.window.navigator.geolocation.getCurrentPosition(
+          success, 
+          error, 
+          {'timeout': 5000, 'maximumAge': 60000}
+        )
+      else:
+        set_la_fallback()
+
+      anvil.Notification(f"Loaded {len(clusters)} clusters successfully!").show()
+
+    except Exception as e:
+      anvil.alert(f"Error loading clusters: {e}")
