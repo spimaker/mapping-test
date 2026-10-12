@@ -126,39 +126,25 @@ def save_map_item(form_data):
 #
 
 @anvil.server.callable
-def get_clustered_data(cluster_type='miles', threshold=25, center_lat=None, center_lon=None):
+def get_clustered_data(cluster_type='miles', threshold=25):
   """
-    Returns clustered data based on cluster type and threshold, 
-    centered around user location or defaults to Los Angeles.
+    Returns clustered data globally based on cluster type and threshold,
+    without filtering out distant records.
     """
-  # Default to Los Angeles if no center coordinates provided
-  if center_lat is None or center_lon is None:
-    center_lat = 34.0522
-    center_lon = -118.2437
-
   all_items = list(app_tables.mapitems.search())
-  filtered_items = all_items
 
-  # If miles/kilometers perimeter is selected, filter by distance from the center point
-  if cluster_type in ['miles', 'kilometers'] and threshold:
-    filtered_items = []
-    for row in all_items:
-      lat = row.get('latitude') or row.get('Latitude_Value')
-      lon = row.get('longitude') or row.get('Longitude_Value')
-      if lat is not None and lon is not None:
-        dist = calculate_distance_miles(center_lat, center_lon, lat, lon)
-        limit = threshold if cluster_type == 'miles' else threshold * 0.621371 # km to miles
-        if dist <= limit:
-          filtered_items.append(row)
-
-    # Build clusters from the filtered items
+  # Build clusters from ALL items in the database
   coord_map = {}
-  for row in filtered_items:
+  for row in all_items:
     lat = row.get('latitude') or row.get('Latitude_Value')
     lon = row.get('longitude') or row.get('Longitude_Value')
 
     if lat is not None and lon is not None:
-      key = (round(lat, 5), round(lon, 5))
+      # If clustering by miles/kilometers, you can optionally round coordinates 
+      # or group them based on the threshold perimeter. 
+      # For general global display, rounding to 2-3 decimal places creates clean regional clusters.
+      key = (round(lat, 2), round(lon, 2)) if cluster_type in ['miles', 'kilometers'] else (round(lat, 4), round(lon, 4))
+
       if key not in coord_map:
         coord_map[key] = {
           'latitude': lat,
@@ -183,7 +169,6 @@ def get_clustered_data(cluster_type='miles', threshold=25, center_lat=None, cent
     })
 
   return clusters
-
 
 
 def calculate_distance_miles(lat1, lon1, lat2, lon2):
