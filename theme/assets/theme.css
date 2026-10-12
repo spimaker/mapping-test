@@ -288,6 +288,10 @@ textarea.anvil-text-area:disabled,
   z-index: 100000 !important;
 }
 
-.anvil-role-pink-bg input {
-  background-color: #FFB6C1 !important;
+.anvil-role-highlight-bg,
+.anvil-role-highlight-bg input, 
+.anvil-role-highlight-bg textarea,
+.anvil-role-highlight-bg select {
+  background-color: #ffb6c1 !important;
+} !important; /* Soft yellow or any hex code */
 }

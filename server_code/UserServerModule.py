@@ -6,41 +6,55 @@ import anvil.tables as tables
 from anvil.tables import app_tables
 
 @anvil.server.callable
-def request_email_otp(email, first_name=None, last_name=None, user_name=None, mobile_phone=None):
-  """Generates a 6-digit OTP code, creates or updates the user profile, and sends the code via email."""
+def register_user(email, user_name, first_name, last_name, mobile_phone):
+  """Validates uniqueness, creates user record, and sends initial OTP code."""
+  email = email.strip().lower()
+  user_name = user_name.strip()
+
+  # Check if email already exists
+  if app_tables.users.get(email=email):
+    return {'status': 'error', 'message': 'An account with this email address already exists.'}
+
+    # Check if username already exists
+  if app_tables.users.get(user_name=user_name):
+    return {'status': 'error', 'message': 'This username is already taken. Please choose another.'}
+
+    # Create new user row
+  user = app_tables.users.add_row(
+    email=email,
+    user_name=user_name,
+    first_name=first_name,
+    last_name=last_name,
+    mobile_phone=mobile_phone,
+    enabled=True
+  )
+
+  # Generate and send OTP
+  return _generate_and_send_otp(user, email)
+
+
+@anvil.server.callable
+def request_login_otp(email):
+  """Checks if user exists, then sends an OTP code for login."""
   email = email.strip().lower()
   user = app_tables.users.get(email=email)
 
-  # If user doesn't exist yet, create a new row with their info
   if not user:
-    user = app_tables.users.add_row(
-      email=email,
-      enabled=True,
-      first_name=first_name,
-      last_name=last_name,
-      user_name=user_name,
-      mobile_phone=mobile_phone
-    )
-  else:
-    # Update fields if user already exists (only update if new values were provided)
-    update_dict = {}
-    if first_name: update_dict['first_name'] = first_name
-    if last_name: update_dict['last_name'] = last_name
-    if user_name: update_dict['user_name'] = user_name
-    if mobile_phone: update_dict['mobile_phone'] = mobile_phone
-    if update_dict:
-      user.update(**update_dict)
+    return {'status': 'error', 'message': 'No account found with this email address. Please register first.'}
 
-    # Generate random 6-digit string
+  return _generate_and_send_otp(user, email)
+
+
+def _generate_and_send_otp(user, email):
+  """Helper to generate code, set expiration, and email the user."""
   code = f"{random.randint(100000, 999999)}"
   expiry = datetime.datetime.now() + datetime.timedelta(minutes=10)
 
   user.update(otp_code=code, otp_expiry=expiry)
 
-  # Send the email
   anvil.email.send(
     to=email,
-    subject="Your Login Verification Code",
+    subject="Your Verification Code",
     text=f"Your 6-digit verification code is: {code}\nThis code will expire in 10 minutes."
   )
 
@@ -49,12 +63,12 @@ def request_email_otp(email, first_name=None, last_name=None, user_name=None, mo
 
 @anvil.server.callable
 def verify_email_otp(email, code_entered):
-  """Verifies the 6-digit code and logs the user in on the server."""
+  """Verifies the 6-digit code and logs the user in."""
   email = email.strip().lower()
   user = app_tables.users.get(email=email)
 
   if not user or not user['otp_code']:
-    return {'status': 'error', 'message': 'No code requested for this email.'}
+    return {'status': 'error', 'message': 'No active verification request found.'}
 
   if user['otp_code'] != str(code_entered).strip():
     return {'status': 'invalid', 'message': 'Incorrect verification code.'}
@@ -62,10 +76,8 @@ def verify_email_otp(email, code_entered):
   if datetime.datetime.now() > user['otp_expiry']:
     return {'status': 'expired', 'message': 'Verification code has expired. Please request a new one.'}
 
-    # Clear used OTP code
+    # Clear code and force login session
   user.update(otp_code=None, otp_expiry=None)
-
-  # Force login session on server
   anvil.users.force_login(user)
 
   return {'status': 'success', 'message': 'Successfully authenticated!'}
