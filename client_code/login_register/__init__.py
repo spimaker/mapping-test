@@ -41,7 +41,7 @@ class login_register(login_registerTemplate):
     self.submit_registration_button.visible = False
 
     # Login Section Hidden
-    self.email_address_value.visible = False
+    self.email_value.visible = False
     self.submit_login_button.visible = False
 
     # Code Verification Section Visible
