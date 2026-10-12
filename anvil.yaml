@@ -127,7 +127,7 @@ services:
   server_config: {user_table: users}
   source: /runtime/services/anvil/users.yml
 - client_config: {}
-  server_config: {test_mode: true}
+  server_config: {custom_smtp: true, smtp_encryption: ssl, smtp_host: teleweb-pub.com, smtp_password: UNULUueS7xiNYew3mUW6kkt4C8p6u4BAsnRJnyHwNw8e/RyZdoqkNnrM35IBK9spFyjYzQMYHt9R1jNOeS3BEmp8sD2BgBvY0lso80BSSI4/ZkrsjOd/DL2LE+ucu5wb1P0LQHpmwLnDOt5e9tnU/JAvhoX3xtGB2ELnNBQ+ndSZZVjxKg==, smtp_port: 465, smtp_user: jim@teleweb-pub.com, test_mode: false}
   source: /runtime/services/anvil/email.yml
 startup: {module: login_register, type: form}
 startup_form: null

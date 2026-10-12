@@ -45,16 +45,27 @@ def request_login_otp(email):
   return _generate_and_send_otp(user, email)
 
 
+import random
+import datetime
+import anvil.email
+import anvil.users
+import anvil.tables as tables
+from anvil.tables import app_tables
+
 def _generate_and_send_otp(user, email):
-  """Helper to generate code, set expiration, and email the user."""
+  """Helper to generate code, set timezone-aware expiration, and email the user."""
   code = f"{random.randint(100000, 999999)}"
-  expiry = datetime.datetime.now() + datetime.timedelta(minutes=10)
+
+  # Use timezone-aware UTC datetime so it matches Anvil data tables
+  expiry = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=10)
 
   user.update(otp_code=code, otp_expiry=expiry)
 
   anvil.email.send(
     to=email,
-    subject="Your Verification Code",
+    from_address="jim@teleweb-pub.com",
+    from_name="Naturist Map",
+    subject="Naturist Map: Your Verification Code",
     text=f"Your 6-digit verification code is: {code}\nThis code will expire in 10 minutes."
   )
 
@@ -73,7 +84,9 @@ def verify_email_otp(email, code_entered):
   if user['otp_code'] != str(code_entered).strip():
     return {'status': 'invalid', 'message': 'Incorrect verification code.'}
 
-  if datetime.datetime.now() > user['otp_expiry']:
+    # Compare using timezone-aware UTC current time
+  current_time = datetime.datetime.now(datetime.timezone.utc)
+  if current_time > user['otp_expiry']:
     return {'status': 'expired', 'message': 'Verification code has expired. Please request a new one.'}
 
     # Clear code and force login session
