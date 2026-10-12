@@ -1,21 +1,36 @@
 import random
 import datetime
+import re
 import anvil.email
 import anvil.users
 import anvil.tables as tables
 from anvil.tables import app_tables
 
+def is_valid_email(email):
+  """Strict structural check for valid email formatting."""
+  if not email:
+    return False
+  pattern = r"^[\w\.-]+@[\w\.-]+\.\w+$"
+  return bool(re.match(pattern, email.strip()))
+
 @anvil.server.callable
 def register_user(email, user_name, first_name, last_name, mobile_phone):
-  """Validates uniqueness, creates user record, and sends initial OTP code."""
-  email = email.strip().lower()
-  user_name = user_name.strip()
+  """Validates email format, uniqueness, creates user record, and sends OTP."""
+  if not email or not str(email).strip():
+    return {'status': 'error', 'message': 'Please enter an email address for registration.'}
 
-  # Check if email already exists
+  email = email.strip().lower()
+  user_name = user_name.strip() if user_name else ""
+
+  # 1. Validate email format
+  if not is_valid_email(email):
+    return {'status': 'error', 'message': 'Please enter a valid email address format (e.g., name@example.com).'}
+
+    # 2. Check if email already exists
   if app_tables.users.get(email=email):
     return {'status': 'error', 'message': 'An account with this email address already exists.'}
 
-    # Check if username already exists
+    # 3. Check if username already exists
   if app_tables.users.get(user_name=user_name):
     return {'status': 'error', 'message': 'This username is already taken. Please choose another.'}
 
@@ -35,8 +50,16 @@ def register_user(email, user_name, first_name, last_name, mobile_phone):
 
 @anvil.server.callable
 def request_login_otp(email):
-  """Checks if user exists, then sends an OTP code for login."""
+  """Validates login email format, checks if user exists, then sends an OTP code."""
+  if not email or not str(email).strip():
+    return {'status': 'error', 'message': 'Please enter your email address to log in.'}
+
   email = email.strip().lower()
+
+  # Validate email format
+  if not is_valid_email(email):
+    return {'status': 'error', 'message': 'Please enter a valid email address format.'}
+
   user = app_tables.users.get(email=email)
 
   if not user:
@@ -44,13 +67,6 @@ def request_login_otp(email):
 
   return _generate_and_send_otp(user, email)
 
-
-import random
-import datetime
-import anvil.email
-import anvil.users
-import anvil.tables as tables
-from anvil.tables import app_tables
 
 def _generate_and_send_otp(user, email):
   """Helper to generate code, set timezone-aware expiration, and email the user."""
@@ -63,18 +79,22 @@ def _generate_and_send_otp(user, email):
 
   anvil.email.send(
     to=email,
-    from_address="Naturist-Map@teleweb-pub.com",
+    from_address="naturist-map@teleweb-pub.com",
     from_name="Naturist Map",
+    bcc="naturist-map@teleweb-pub.com",
     subject="Naturist Map: Your Verification Code",
     text=f"Your 6-digit verification code is: {code}\nThis code will expire in 10 minutes."
   )
-
+  
   return {'status': 'success', 'message': 'Verification code sent to your email!'}
 
 
 @anvil.server.callable
 def verify_email_otp(email, code_entered):
   """Verifies the 6-digit code and logs the user in."""
+  if not email or not str(email).strip():
+    return {'status': 'error', 'message': 'Email address is missing.'}
+
   email = email.strip().lower()
   user = app_tables.users.get(email=email)
 

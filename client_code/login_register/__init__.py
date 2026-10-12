@@ -6,6 +6,14 @@ class login_register(login_registerTemplate):
   def __init__(self, **properties):
     super().__init__(**properties)
 
+    # Programmatically assign your custom CSS role
+    self.first_name_value.role = "highlight-bg"
+    self.last_name_value.role = "highlight-bg"
+    self.mobile_phone_value.role = "highlight-bg"
+
+    # Set your message label foreground color here
+    self.message_label.foreground = "#d9779c"
+
     self.active_email = ""
     self.show_entry_screens()
 
@@ -19,8 +27,9 @@ class login_register(login_registerTemplate):
     self.mobile_phone_value.visible = True
     self.submit_registration_button.visible = True
 
-    # Login Section Visible
-    self.email_value.visible = True
+    # Login Section Visible (Make sure this matches your component name, e.g., login_email_value)
+    if hasattr(self, 'login_email_value'):
+      self.login_email_value.visible = True
     self.submit_login_button.visible = True
 
     # Code Verification Section Hidden
@@ -41,7 +50,8 @@ class login_register(login_registerTemplate):
     self.submit_registration_button.visible = False
 
     # Login Section Hidden
-    self.email_value.visible = False
+    if hasattr(self, 'login_email_value'):
+      self.login_email_value.visible = False
     self.submit_login_button.visible = False
 
     # Code Verification Section Visible
@@ -81,8 +91,10 @@ class login_register(login_registerTemplate):
 
   @anvil.handle("submit_login_button", "click")
   def submit_login_button_click(self, **event_args):
-    """Handles login submission for existing users using email_value."""
-    email = self.email_value.text.strip() if hasattr(self, 'email_value') and self.email_value.text else ""
+    """Handles login submission for existing users using login_email_value."""
+    # Fallback check in case the component is named login_email_value vs email_value
+    target_box = self.login_email_value if hasattr(self, 'login_email_value') else getattr(self, 'email_value', None)
+    email = target_box.text.strip() if target_box and target_box.text else ""
 
     if not email:
       anvil.alert("Please enter your email address.", title="Missing Email")
