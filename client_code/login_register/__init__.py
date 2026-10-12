@@ -11,6 +11,9 @@ class login_register(login_registerTemplate):
     self.user_email = ""
     self.update_stage_ui()
 
+    # Set background color of restricted fields
+    self.mobile_phone_value.role = 'highlight-bg'
+
   def update_stage_ui(self):
     """Toggles visible inputs depending on stage."""
     if self.stage == 'request':

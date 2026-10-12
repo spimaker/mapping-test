@@ -287,3 +287,7 @@ textarea.anvil-text-area:disabled,
 .modal, .modal-backdrop {
   z-index: 100000 !important;
 }
+
+.anvil-role-pink-bg input {
+  background-color: #FFB6C1 !important;
+}
