@@ -63,7 +63,7 @@ def _generate_and_send_otp(user, email):
 
   anvil.email.send(
     to=email,
-    from_address="jim@teleweb-pub.com",
+    from_address="Naturist-Map@teleweb-pub.com",
     from_name="Naturist Map",
     subject="Naturist Map: Your Verification Code",
     text=f"Your 6-digit verification code is: {code}\nThis code will expire in 10 minutes."
