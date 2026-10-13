@@ -17,6 +17,46 @@ import uuid
 import requests
 import math
 
+# Comprehensive dictionary for short-code regional expansion (US, Canada, Australia)
+GLOBAL_REGIONS = {
+  # --- US States ---
+  "al": "Alabama, USA", "ak": "Alaska, USA", "az": "Arizona, USA", "ar": "Arkansas, USA",
+  "ca": "California, USA", "co": "Colorado, USA", "ct": "Connecticut, USA", "de": "Delaware, USA",
+  "fl": "Florida, USA", "ga": "Georgia, USA", "hi": "Hawaii, USA", "id": "Idaho, USA",
+  "il": "Illinois, USA", "in": "Indiana, USA", "ia": "Iowa, USA", "ks": "Kansas, USA",
+  "ky": "Kentucky, USA", "la": "Louisiana, USA", "me": "Maine, USA", "md": "Maryland, USA",
+  "ma": "Massachusetts, USA", "mi": "Michigan, USA", "mn": "Minnesota, USA", "ms": "Mississippi, USA",
+  "mo": "Missouri, USA", "mt": "Montana, USA", "ne": "Nebraska, USA", "nv": "Nevada, USA",
+  "nh": "New Hampshire, USA", "nj": "New Jersey, USA", "nm": "New Mexico, USA", "ny": "New York, USA",
+  "nc": "North Carolina, USA", "nd": "North Dakota, USA", "oh": "Ohio, USA", "ok": "Oklahoma, USA",
+  "or": "Oregon, USA", "pa": "Pennsylvania, USA", "ri": "Rhode Island, USA", "sc": "South Carolina, USA",
+  "sd": "South Dakota, USA", "tn": "Tennessee, USA", "tx": "Texas, USA", "ut": "Utah, USA",
+  "vt": "Vermont, USA", "va": "Virginia, USA", "wa": "Washington, USA", "wv": "West Virginia, USA",
+  "wi": "Wisconsin, USA", "wy": "Wyoming, USA", "dc": "District of Columbia, USA",
+
+  # --- Canadian Provinces & Territories ---
+  "ab": "Alberta, Canada",
+  "bc": "British Columbia, Canada",
+  "mb": "Manitoba, Canada",
+  "nb": "New Brunswick, Canada",
+  "nl": "Newfoundland and Labrador, Canada",
+  "ns": "Nova Scotia, Canada",
+  "on": "Ontario, Canada",
+  "pe": "Prince Edward Island, Canada",
+  "qc": "Quebec, Canada",
+  "sk": "Saskatchewan, Canada",
+  "yt": "Yukon, Canada",
+
+  # --- Australian States & Territories ---
+  "nsw": "New South Wales, Australia",
+  "vic": "Victoria, Australia",
+  "qld": "Queensland, Australia",
+  "wa": "Western Australia, Australia",
+  "sa": "South Australia, Australia",
+  "tas": "Tasmania, Australia",
+  "act": "Australian Capital Territory, Australia"
+}
+
 #
 # get_country_list
 #
@@ -29,7 +69,7 @@ def get_country_list():
 #
 # save_map_item
 #
-  
+
 @anvil.server.callable
 def save_map_item(form_data):
   user_name = form_data.get('User_Name_Value')
@@ -45,7 +85,6 @@ def save_map_item(form_data):
   )
 
   if existing_record:
-    # If it's a duplicate, still fetch all items so they display on the map
     all_items = app_tables.mapitems.search()
     items_list = [{
       'id': row['id'],
@@ -63,12 +102,18 @@ def save_map_item(form_data):
       'all_items': items_list
     }
 
-    # Construct full address string for geocoding
+  # Construct full address string for geocoding
+  state_input = form_data.get('State_Province_Region_Value', '')
+  # Expand short code if applicable
+  cleaned_state = state_input.strip().lower()
+  if cleaned_state in GLOBAL_REGIONS:
+    state_input = GLOBAL_REGIONS[cleaned_state]
+
   address_parts = [
     address_1,
     form_data.get('Address2_Value', ''),
     city,
-    form_data.get('State_Province_Region_Value', ''),
+    state_input,
     postal_code,
     form_data.get('Country_Code_Value', '')
   ]
@@ -89,7 +134,7 @@ def save_map_item(form_data):
     except Exception as e:
       print(f"Geocoding error: {e}")
 
-    # Generate a unique ID and save row
+  # Generate a unique ID and save row
   record_id = str(uuid.uuid4())[:8].upper()
 
   app_tables.mapitems.add_row(
@@ -106,7 +151,6 @@ def save_map_item(form_data):
     formatted_address=formatted_address
   )
 
-  # Fetch all items from the database to return to the client
   all_items = app_tables.mapitems.search()
   items_list = [{
     'id': row['id'],
@@ -123,6 +167,7 @@ def save_map_item(form_data):
     'formatted_address': formatted_address,
     'all_items': items_list
   }
+
 #
 # get_clustered_data
 #
@@ -135,16 +180,12 @@ def get_clustered_data(cluster_type='miles', threshold=25):
     """
   all_items = list(app_tables.mapitems.search())
 
-  # Build clusters from ALL items in the database
   coord_map = {}
   for row in all_items:
     lat = row.get('latitude') or row.get('Latitude_Value')
     lon = row.get('longitude') or row.get('Longitude_Value')
 
     if lat is not None and lon is not None:
-      # If clustering by miles/kilometers, you can optionally round coordinates 
-      # or group them based on the threshold perimeter. 
-      # For general global display, rounding to 2-3 decimal places creates clean regional clusters.
       key = (round(lat, 2), round(lon, 2)) if cluster_type in ['miles', 'kilometers'] else (round(lat, 4), round(lon, 4))
 
       if key not in coord_map:
@@ -187,39 +228,9 @@ def calculate_distance_miles(lat1, lon1, lat2, lon2):
   c = 2 * math.asin(math.sqrt(a))
   return R * c
 
-def geocode_address_string(address_str):
-  """Geocodes an address string using OpenStreetMap Nominatim (free, no API key required)."""
-  try:
-    url = "https://nominatim.openstreetmap.org/search"
-    headers = {'User-Agent': 'AnvilMapApp/1.0'}
-    params = {'q': address_str, 'format': 'json', 'limit': 1}
-    response = requests.get(url, params=params, headers=headers, timeout=5)
-    data = response.json()
-    if data:
-      return float(data[0]['lat']), float(data[0]['lon'])
-  except Exception as e:
-    print(f"Geocoding error: {e}")
-  return None, None
-
-import requests
-import math
-
-def calculate_distance_miles(lat1, lon1, lat2, lon2):
-  """Calculate the great-circle distance between two points on the Earth in miles."""
-  if None in (lat1, lon1, lat2, lon2):
-    return float('inf')
-
-  R = 3958.8  # Radius of the Earth in miles
-  dlat = math.radians(lat2 - lat1)
-  dlon = math.radians(lon2 - lon1)
-  a = (math.sin(dlat / 2) ** 2 +
-       math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) *
-       math.sin(dlon / 2) ** 2)
-  c = 2 * math.asin(math.sqrt(a))
-  return R * c
 
 def geocode_address_string(address_str):
-  """Geocodes an address string using OpenStreetMap Nominatim (free, no API key required)."""
+  """Geocodes an address string using OpenStreetMap Nominatim."""
   try:
     url = "https://nominatim.openstreetmap.org/search"
     headers = {'User-Agent': 'AnvilMapApp/1.0'}
@@ -259,13 +270,18 @@ def geocode_multiple_addresses(address_str):
   except Exception:
     return []
 
+
 @anvil.server.callable
 def search_map_items_by_fields(search_data):
   addr1 = (search_data.get('Address1_Value') or '').strip()
   city = (search_data.get('City_Value') or '').strip()
-  state = (search_data.get('State_Province_Region_Value') or '').strip()
+  state_raw = (search_data.get('State_Province_Region_Value') or '').strip()
   postal = (search_data.get('Postal_Code_Value') or '').strip()
   country = (search_data.get('Country_Code_Value') or '').strip()
+
+  # Automatically expand short-codes (like 'ok' -> 'Oklahoma, USA')
+  cleaned_state = state_raw.lower()
+  state = GLOBAL_REGIONS.get(cleaned_state, state_raw)
 
   # Check if the user already picked a specific location from the disambiguation dialog
   sel_lat = search_data.get('Selected_Latitude')
@@ -277,7 +293,6 @@ def search_map_items_by_fields(search_data):
   zoom = 11
 
   if sel_lat and sel_lon:
-    # User selected a specific match from the popup dialog
     center_lat = sel_lat
     center_lon = sel_lon
     zoom = 12
@@ -288,8 +303,9 @@ def search_map_items_by_fields(search_data):
       search_args['address_1'] = q.ilike(f"%{addr1}%")
     if city:
       search_args['city'] = q.ilike(f"%{city}%")
-    if state:
-      search_args['state'] = q.ilike(f"%{state}%")
+    if state_raw:
+      # Search against both raw input and expanded state name in database
+      search_args['state'] = q.any_of(q.ilike(f"%{state_raw}%"), q.ilike(f"%{state}%"))
     if postal:
       search_args['postal_code'] = q.ilike(f"%{postal}%")
     if country:
@@ -302,34 +318,32 @@ def search_map_items_by_fields(search_data):
       zoom = 15
     elif city or postal:
       zoom = 12
-    elif state:
+    elif state_raw:
       zoom = 8
     elif country:
       zoom = 5
 
-      # Step 2: Geocoding fallback if direct text search found nothing
-    if not matching_rows and any([addr1, city, state, postal, country]):
+    # Step 2: Geocoding fallback if direct text search found nothing
+    if not matching_rows and any([addr1, city, state_raw, postal, country]):
       address_parts = [p for p in [addr1, city, state, postal, country] if p]
       full_query = ", ".join(address_parts)
 
       geocoded_results = geocode_multiple_addresses(full_query)
 
-      # If multiple cities match and no country was specified to narrow it down
       if len(geocoded_results) > 1 and not country:
         return {
           'status': 'disambiguation_needed',
           'options': geocoded_results
         }
 
-        # If 0 results and country was blank
-      if not geocoded_results and not country and (city or state):
+      if not geocoded_results and not country and (city or state_raw):
         raise Exception("Could not locate this city and state automatically. Please select a country and try again.")
 
       if geocoded_results:
         center_lat = geocoded_results[0]['latitude']
         center_lon = geocoded_results[0]['longitude']
 
-    # If we have center coordinates (either directly or via selection), find records within 10 miles
+  # If we have center coordinates, find records within 10 miles
   if center_lat and center_lon and (addr1 or city or postal or sel_lat):
     all_items = app_tables.mapitems.search()
     for row in all_items:
@@ -341,7 +355,7 @@ def search_map_items_by_fields(search_data):
           if row not in matching_rows:
             matching_rows.append(row)
 
-    # Format results into clusters
+  # Format results into clusters
   clusters = []
   valid_coords = []
   coord_map = {}
