@@ -137,6 +137,10 @@ class Form1(Form1Template):
 
   @anvil.handle("Save_Button", "click")
   def save_button_click(self, **event_args):
+    if not self.Country_Code_Value.selected_value:
+      anvil.alert("Please select a country before saving.", title="Country Required")
+      return
+
     form_data = self._get_address_input_data()
     try:
       result = anvil.server.call('save_map_item', form_data)
@@ -160,6 +164,10 @@ class Form1(Form1Template):
 
   @anvil.handle("Search_Button", "click")
   def search_button_click(self, **event_args):
+    if not self.Country_Code_Value.selected_value:
+      anvil.alert("Please select a country to search within.", title="Country Required")
+      return
+
     search_data = self._get_address_input_data()
     try:
       result = anvil.server.call('search_map_items_by_fields', search_data)
@@ -302,13 +310,14 @@ class Form1(Form1Template):
     map_element.dispatchEvent(anvil.js.window.Event('resize'))
 
   def handle_keydown(self, event):
+    """Handles window-level key events (e.g., ESC to exit fullscreen)."""
     if getattr(event, 'key', '') == 'Escape' and self.is_fullscreen:
       self.toggle_fullscreen()
 
   def show_paginated_users(self, usernames, cluster_label):
     was_fullscreen = self.is_fullscreen
     if was_fullscreen:
-      self.toggle_fullscreen() # Safely collapse fullscreen to show alert
+      self.toggle_fullscreen()
 
     page_size, total_pages, current_page = 50, max(1, math.ceil(len(usernames) / 50)), 1
 
@@ -332,6 +341,7 @@ class Form1(Form1Template):
         anvil.js.window.setTimeout(lambda: self.toggle_fullscreen(), 100)
 
   def _get_address_input_data(self):
+    """Packages all address input fields into a dictionary for server calls."""
     return {
       'User_Name_Value': self.User_Name_Value.text if hasattr(self, 'User_Name_Value') else None,
       'Address1_Value': self.Address1_Value.text,

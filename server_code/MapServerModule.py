@@ -17,58 +17,105 @@ import uuid
 import requests
 import math
 
-# Comprehensive dictionary for short-code regional expansion (US, Canada, Australia)
-GLOBAL_REGIONS = {
+# Master region lookup: maps lowercase codes AND full names 
+# to (Database Code, Nominatim Geocode String)
+REGION_MAPPINGS = {
   # --- US States ---
-  "al": "Alabama, USA", "ak": "Alaska, USA", "az": "Arizona, USA", "ar": "Arkansas, USA",
-  "ca": "California, USA", "co": "Colorado, USA", "ct": "Connecticut, USA", "de": "Delaware, USA",
-  "fl": "Florida, USA", "ga": "Georgia, USA", "hi": "Hawaii, USA", "id": "Idaho, USA",
-  "il": "Illinois, USA", "in": "Indiana, USA", "ia": "Iowa, USA", "ks": "Kansas, USA",
-  "ky": "Kentucky, USA", "la": "Louisiana, USA", "me": "Maine, USA", "md": "Maryland, USA",
-  "ma": "Massachusetts, USA", "mi": "Michigan, USA", "mn": "Minnesota, USA", "ms": "Mississippi, USA",
-  "mo": "Missouri, USA", "mt": "Montana, USA", "ne": "Nebraska, USA", "nv": "Nevada, USA",
-  "nh": "New Hampshire, USA", "nj": "New Jersey, USA", "nm": "New Mexico, USA", "ny": "New York, USA",
-  "nc": "North Carolina, USA", "nd": "North Dakota, USA", "oh": "Ohio, USA", "ok": "Oklahoma, USA",
-  "or": "Oregon, USA", "pa": "Pennsylvania, USA", "ri": "Rhode Island, USA", "sc": "South Carolina, USA",
-  "sd": "South Dakota, USA", "tn": "Tennessee, USA", "tx": "Texas, USA", "ut": "Utah, USA",
-  "vt": "Vermont, USA", "va": "Virginia, USA", "wa": "Washington, USA", "wv": "West Virginia, USA",
-  "wi": "Wisconsin, USA", "wy": "Wyoming, USA", "dc": "District of Columbia, USA",
+  "al": ("AL", "Alabama, USA"), "alabama": ("AL", "Alabama, USA"),
+  "ak": ("AK", "Alaska, USA"), "alaska": ("AK", "Alaska, USA"),
+  "az": ("AZ", "Arizona, USA"), "arizona": ("AZ", "Arizona, USA"),
+  "ar": ("AR", "Arkansas, USA"), "arkansas": ("AR", "Arkansas, USA"),
+  "ca": ("CA", "California, USA"), "california": ("CA", "California, USA"),
+  "co": ("CO", "Colorado, USA"), "colorado": ("CO", "Colorado, USA"),
+  "ct": ("CT", "Connecticut, USA"), "connecticut": ("CT", "Connecticut, USA"),
+  "de": ("DE", "Delaware, USA"), "delaware": ("DE", "Delaware, USA"),
+  "fl": ("FL", "Florida, USA"), "florida": ("FL", "Florida, USA"),
+  "ga": ("GA", "Georgia, USA"), "georgia": ("GA", "Georgia, USA"),
+  "hi": ("HI", "Hawaii, USA"), "hawaii": ("HI", "Hawaii, USA"),
+  "id": ("ID", "Idaho, USA"), "idaho": ("ID", "Idaho, USA"),
+  "il": ("IL", "Illinois, USA"), "illinois": ("IL", "Illinois, USA"),
+  "in": ("IN", "Indiana, USA"), "indiana": ("IN", "Indiana, USA"),
+  "ia": ("IA", "Iowa, USA"), "iowa": ("IA", "Iowa, USA"),
+  "ks": ("KS", "Kansas, USA"), "kansas": ("KS", "Kansas, USA"),
+  "ky": ("KY", "Kentucky, USA"), "kentucky": ("KY", "Kentucky, USA"),
+  "la": ("LA", "Louisiana, USA"), "louisiana": ("LA", "Louisiana, USA"),
+  "me": ("ME", "Maine, USA"), "maine": ("ME", "Maine, USA"),
+  "md": ("MD", "Maryland, USA"), "maryland": ("MD", "Maryland, USA"),
+  "ma": ("MA", "Massachusetts, USA"), "massachusetts": ("MA", "Massachusetts, USA"),
+  "mi": ("MI", "Michigan, USA"), "michigan": ("MI", "Michigan, USA"),
+  "mn": ("MN", "Minnesota, USA"), "minnesota": ("MN", "Minnesota, USA"),
+  "ms": ("MS", "Mississippi, USA"), "mississippi": ("MS", "Mississippi, USA"),
+  "mo": ("MO", "Missouri, USA"), "missouri": ("MO", "Missouri, USA"),
+  "mt": ("MT", "Montana, USA"), "montana": ("MT", "Montana, USA"),
+  "ne": ("NE", "Nebraska, USA"), "nebraska": ("NE", "Nebraska, USA"),
+  "nv": ("NV", "Nevada, USA"), "nevada": ("NV", "Nevada, USA"),
+  "nh": ("NH", "New Hampshire, USA"), "new hampshire": ("NH", "New Hampshire, USA"),
+  "nj": ("NJ", "New Jersey, USA"), "new jersey": ("NJ", "New Jersey, USA"),
+  "nm": ("NM", "New Mexico, USA"), "new mexico": ("NM", "New Mexico, USA"),
+  "ny": ("NY", "New York, USA"), "new york": ("NY", "New York, USA"),
+  "nc": ("NC", "North Carolina, USA"), "north carolina": ("NC", "North Carolina, USA"),
+  "nd": ("ND", "North Dakota, USA"), "north dakota": ("ND", "North Dakota, USA"),
+  "oh": ("OH", "Ohio, USA"), "ohio": ("OH", "Ohio, USA"),
+  "ok": ("OK", "Oklahoma, USA"), "oklahoma": ("OK", "Oklahoma, USA"),
+  "or": ("OR", "Oregon, USA"), "oregon": ("OR", "Oregon, USA"),
+  "pa": ("PA", "Pennsylvania, USA"), "pennsylvania": ("PA", "Pennsylvania, USA"),
+  "ri": ("RI", "Rhode Island, USA"), "rhode island": ("RI", "Rhode Island, USA"),
+  "sc": ("SC", "South Carolina, USA"), "south carolina": ("SC", "South Carolina, USA"),
+  "sd": ("SD", "South Dakota, USA"), "south dakota": ("SD", "South Dakota, USA"),
+  "tn": ("TN", "Tennessee, USA"), "tennessee": ("TN", "Tennessee, USA"),
+  "tx": ("TX", "Texas, USA"), "texas": ("TX", "Texas, USA"),
+  "ut": ("UT", "Utah, USA"), "utah": ("UT", "Utah, USA"),
+  "vt": ("VT", "Vermont, USA"), "vermont": ("VT", "Vermont, USA"),
+  "va": ("VA", "Virginia, USA"), "virginia": ("VA", "Virginia, USA"),
+  "wa": ("WA", "Washington, USA"), "washington": ("WA", "Washington, USA"),
+  "wv": ("WV", "West Virginia, USA"), "west virginia": ("WV", "West Virginia, USA"),
+  "wi": ("WI", "Wisconsin, USA"), "wisconsin": ("WI", "Wisconsin, USA"),
+  "wy": ("WY", "Wyoming, USA"), "wyoming": ("WY", "Wyoming, USA"),
+  "dc": ("DC", "District of Columbia, USA"), "district of columbia": ("DC", "District of Columbia, USA"),
 
   # --- Canadian Provinces & Territories ---
-  "ab": "Alberta, Canada",
-  "bc": "British Columbia, Canada",
-  "mb": "Manitoba, Canada",
-  "nb": "New Brunswick, Canada",
-  "nl": "Newfoundland and Labrador, Canada",
-  "ns": "Nova Scotia, Canada",
-  "on": "Ontario, Canada",
-  "pe": "Prince Edward Island, Canada",
-  "qc": "Quebec, Canada",
-  "sk": "Saskatchewan, Canada",
-  "yt": "Yukon, Canada",
+  "ab": ("AB", "Alberta, Canada"), "alberta": ("AB", "Alberta, Canada"),
+  "bc": ("BC", "British Columbia, Canada"), "british columbia": ("BC", "British Columbia, Canada"),
+  "mb": ("MB", "Manitoba, Canada"), "manitoba": ("MB", "Manitoba, Canada"),
+  "nb": ("NB", "New Brunswick, Canada"), "new brunswick": ("NB", "New Brunswick, Canada"),
+  "nl": ("NL", "Newfoundland and Labrador, Canada"), "newfoundland and labrador": ("NL", "Newfoundland and Labrador, Canada"),
+  "ns": ("NS", "Nova Scotia, Canada"), "nova scotia": ("NS", "Nova Scotia, Canada"),
+  "on": ("ON", "Ontario, Canada"), "ontario": ("ON", "Ontario, Canada"),
+  "pe": ("PE", "Prince Edward Island, Canada"), "prince edward island": ("PE", "Prince Edward Island, Canada"),
+  "qc": ("QC", "Quebec, Canada"), "quebec": ("QC", "Quebec, Canada"),
+  "sk": ("SK", "Saskatchewan, Canada"), "saskatchewan": ("SK", "Saskatchewan, Canada"),
+  "yt": ("YT", "Yukon, Canada"), "yukon": ("YT", "Yukon, Canada"),
 
   # --- Australian States & Territories ---
-  "nsw": "New South Wales, Australia",
-  "vic": "Victoria, Australia",
-  "qld": "Queensland, Australia",
-  "wa": "Western Australia, Australia",
-  "sa": "South Australia, Australia",
-  "tas": "Tasmania, Australia",
-  "act": "Australian Capital Territory, Australia"
+  "nsw": ("NSW", "New South Wales, Australia"), "new south wales": ("NSW", "New South Wales, Australia"),
+  "vic": ("VIC", "Victoria, Australia"), "victoria": ("VIC", "Victoria, Australia"),
+  "qld": ("QLD", "Queensland, Australia"), "queensland": ("QLD", "Queensland, Australia"),
+  "sa": ("SA", "South Australia, Australia"), "south australia": ("SA", "South Australia, Australia"),
+  "tas": ("TAS", "Tasmania, Australia"), "tasmania": ("TAS", "Tasmania, Australia"),
+  "act": ("ACT", "Australian Capital Territory, Australia"), "australian capital territory": ("ACT", "Australian Capital Territory, Australia")
 }
 
-#
-# get_country_list
-#
+def standardize_region(raw_input):
+  """
+    Takes any user state input (e.g. 'ok', 'OK', 'Oklahoma'), 
+    returns a tuple: (db_stored_code, nominatim_geocode_string).
+    """
+  if not raw_input:
+    return "", ""
+
+  cleaned = raw_input.strip().lower()
+  if cleaned in REGION_MAPPINGS:
+    return REGION_MAPPINGS[cleaned]
+
+  fallback_code = raw_input.strip().upper() if len(raw_input.strip()) <= 3 else raw_input.strip().title()
+  return fallback_code, raw_input.strip()
+
 
 @anvil.server.callable
 def get_country_list():
   countries = [(country.name, country.alpha_2) for country in pycountry.countries]
   return sorted(countries, key=lambda x: x[0])
 
-#
-# save_map_item
-#
 
 @anvil.server.callable
 def save_map_item(form_data):
@@ -76,8 +123,11 @@ def save_map_item(form_data):
   address_1 = form_data.get('Address1_Value')
   city = form_data.get('City_Value')
   postal_code = form_data.get('Postal_Code_Value')
+  country_code = form_data.get('Country_Code_Value')
 
-  # Check for an existing record matching key identifiers
+  raw_state = form_data.get('State_Province_Region_Value', '')
+  db_state, geocode_state = standardize_region(raw_state)
+
   existing_record = app_tables.mapitems.get(
     user_name=user_name,
     address_1=address_1,
@@ -102,39 +152,26 @@ def save_map_item(form_data):
       'all_items': items_list
     }
 
-  # Construct full address string for geocoding
-  state_input = form_data.get('State_Province_Region_Value', '')
-  # Expand short code if applicable
-  cleaned_state = state_input.strip().lower()
-  if cleaned_state in GLOBAL_REGIONS:
-    state_input = GLOBAL_REGIONS[cleaned_state]
-
-  address_parts = [
-    address_1,
-    form_data.get('Address2_Value', ''),
-    city,
-    state_input,
-    postal_code,
-    form_data.get('Country_Code_Value', '')
-  ]
-  full_address = ", ".join([p for p in address_parts if p])
-
   lat = form_data.get('Latitude_Value')
   lon = form_data.get('Longitude_Value')
-  formatted_address = form_data.get('Formatted_Address_Value', full_address)
+  formatted_address = form_data.get('Formatted_Address_Value', '')
 
   if not lat or not lon:
     try:
-      geolocator = Nominatim(user_agent="anvil_mapping_app")
-      location = geolocator.geocode(full_address)
-      if location:
-        lat = location.latitude
-        lon = location.longitude
-        formatted_address = location.address
+      geolocated_list = geocode_multiple_addresses(
+        addr1=address_1,
+        city=city,
+        state_str=geocode_state,
+        postal=postal_code,
+        country_code=country_code
+      )
+      if geolocated_list:
+        lat = geolocated_list[0]['latitude']
+        lon = geolocated_list[0]['longitude']
+        formatted_address = geolocated_list[0]['display_name']
     except Exception as e:
-      print(f"Geocoding error: {e}")
+      print(f"Structured saving geocoding error: {e}")
 
-  # Generate a unique ID and save row
   record_id = str(uuid.uuid4())[:8].upper()
 
   app_tables.mapitems.add_row(
@@ -143,9 +180,9 @@ def save_map_item(form_data):
     address_1=address_1,
     address_2=form_data.get('Address2_Value'),
     city=city,
-    state=form_data.get('State_Province_Region_Value'),
+    state=db_state,
     postal_code=postal_code,
-    country_code=form_data.get('Country_Code_Value'),
+    country_code=country_code,
     latitude=lat,
     longitude=lon,
     formatted_address=formatted_address
@@ -168,16 +205,9 @@ def save_map_item(form_data):
     'all_items': items_list
   }
 
-#
-# get_clustered_data
-#
 
 @anvil.server.callable
 def get_clustered_data(cluster_type='miles', threshold=25):
-  """
-    Returns clustered data globally based on cluster type and threshold,
-    without filtering out distant records.
-    """
   all_items = list(app_tables.mapitems.search())
 
   coord_map = {}
@@ -215,11 +245,10 @@ def get_clustered_data(cluster_type='miles', threshold=25):
 
 
 def calculate_distance_miles(lat1, lon1, lat2, lon2):
-  """Calculate the great-circle distance between two points on the Earth in miles."""
   if None in (lat1, lon1, lat2, lon2):
     return float('inf')
 
-  R = 3958.8  # Radius of the Earth in miles
+  R = 3958.8  
   dlat = math.radians(lat2 - lat1)
   dlon = math.radians(lon2 - lon1)
   a = (math.sin(dlat / 2) ** 2 +
@@ -229,45 +258,55 @@ def calculate_distance_miles(lat1, lon1, lat2, lon2):
   return R * c
 
 
-def geocode_address_string(address_str):
-  """Geocodes an address string using OpenStreetMap Nominatim."""
+def geocode_multiple_addresses(addr1="", city="", state_str="", postal="", country_code=""):
+  """
+  Geocodes using Nominatim's structured parameters (street, city, state, postalcode) 
+  instead of free-form strings, completely eliminating business and POI matches.
+  """
   try:
     url = "https://nominatim.openstreetmap.org/search"
     headers = {'User-Agent': 'AnvilMapApp/1.0'}
-    params = {'q': address_str, 'format': 'json', 'limit': 1}
+
+    params = {
+      'format': 'json',
+      'addressdetails': 1,
+      'limit': 5
+    }
+
+    if addr1:
+      params['street'] = addr1
+    if city:
+      params['city'] = city
+    if state_str:
+      params['state'] = state_str
+    if postal:
+      params['postalcode'] = postal
+
+    if country_code:
+      params['countrycodes'] = country_code.lower()
+
     response = requests.get(url, params=params, headers=headers, timeout=5)
     data = response.json()
-    if data:
-      return float(data[0]['lat']), float(data[0]['lon'])
-  except Exception:
-    pass
-  return None, None
 
-
-def geocode_multiple_addresses(address_str):
-  """Geocodes an address string and returns up to 5 matching options with details."""
-  try:
-    url = "https://nominatim.openstreetmap.org/search"
-    headers = {'User-Agent': 'AnvilMapApp/1.0'}
-    params = {'q': address_str, 'format': 'json', 'addressdetails': 1, 'limit': 5}
-    response = requests.get(url, params=params, headers=headers, timeout=5)
-    data = response.json()
     results = []
     for item in data:
       addr = item.get('address', {})
-      city = addr.get('city') or addr.get('town') or addr.get('village') or addr.get('county') or ''
-      state = addr.get('state', '')
-      country = addr.get('country', '')
+      res_city = addr.get('city') or addr.get('town') or addr.get('village') or addr.get('county') or ''
+      res_state = addr.get('state', '')
+      res_country = addr.get('country', '')
+
       results.append({
         'display_name': item.get('display_name'),
-        'city': city,
-        'state': state,
-        'country': country,
+        'city': res_city,
+        'state': res_state,
+        'country': res_country,
         'latitude': float(item['lat']),
         'longitude': float(item['lon'])
       })
+
     return results
-  except Exception:
+  except Exception as e:
+    print(f"Structured geocoding error: {e}")
     return []
 
 
@@ -275,15 +314,12 @@ def geocode_multiple_addresses(address_str):
 def search_map_items_by_fields(search_data):
   addr1 = (search_data.get('Address1_Value') or '').strip()
   city = (search_data.get('City_Value') or '').strip()
-  state_raw = (search_data.get('State_Province_Region_Value') or '').strip()
+  raw_state = (search_data.get('State_Province_Region_Value') or '').strip()
   postal = (search_data.get('Postal_Code_Value') or '').strip()
   country = (search_data.get('Country_Code_Value') or '').strip()
 
-  # Automatically expand short-codes (like 'ok' -> 'Oklahoma, USA')
-  cleaned_state = state_raw.lower()
-  state = GLOBAL_REGIONS.get(cleaned_state, state_raw)
+  db_state_code, geocode_state_str = standardize_region(raw_state)
 
-  # Check if the user already picked a specific location from the disambiguation dialog
   sel_lat = search_data.get('Selected_Latitude')
   sel_lon = search_data.get('Selected_Longitude')
 
@@ -297,15 +333,16 @@ def search_map_items_by_fields(search_data):
     center_lon = sel_lon
     zoom = 12
   else:
-    # Step 1: Try direct text search first
     search_args = {}
     if addr1:
       search_args['address_1'] = q.ilike(f"%{addr1}%")
     if city:
       search_args['city'] = q.ilike(f"%{city}%")
-    if state_raw:
-      # Search against both raw input and expanded state name in database
-      search_args['state'] = q.any_of(q.ilike(f"%{state_raw}%"), q.ilike(f"%{state}%"))
+    if raw_state:
+      search_args['state'] = q.any_of(
+        q.ilike(f"%{db_state_code}%"), 
+        q.ilike(f"%{raw_state}%")
+      )
     if postal:
       search_args['postal_code'] = q.ilike(f"%{postal}%")
     if country:
@@ -313,37 +350,37 @@ def search_map_items_by_fields(search_data):
 
     matching_rows = list(app_tables.mapitems.search(**search_args)) if search_args else []
 
-    # Determine zoom level
     if addr1:
       zoom = 15
     elif city or postal:
       zoom = 12
-    elif state_raw:
+    elif raw_state:
       zoom = 8
     elif country:
       zoom = 5
 
-    # Step 2: Geocoding fallback if direct text search found nothing
-    if not matching_rows and any([addr1, city, state_raw, postal, country]):
-      address_parts = [p for p in [addr1, city, state, postal, country] if p]
-      full_query = ", ".join(address_parts)
+    if not matching_rows and any([addr1, city, raw_state, postal, country]):
+      geocoded_results = geocode_multiple_addresses(
+        addr1=addr1,
+        city=city,
+        state_str=geocode_state_str,
+        postal=postal,
+        country_code=country
+      )
 
-      geocoded_results = geocode_multiple_addresses(full_query)
-
-      if len(geocoded_results) > 1 and not country:
+      if len(geocoded_results) > 1:
         return {
           'status': 'disambiguation_needed',
           'options': geocoded_results
         }
 
-      if not geocoded_results and not country and (city or state_raw):
-        raise Exception("Could not locate this city and state automatically. Please select a country and try again.")
+      if not geocoded_results and (city or raw_state or addr1):
+        raise Exception("Could not locate this location automatically within the selected country.")
 
       if geocoded_results:
         center_lat = geocoded_results[0]['latitude']
         center_lon = geocoded_results[0]['longitude']
 
-  # If we have center coordinates, find records within 10 miles
   if center_lat and center_lon and (addr1 or city or postal or sel_lat):
     all_items = app_tables.mapitems.search()
     for row in all_items:
@@ -355,7 +392,6 @@ def search_map_items_by_fields(search_data):
           if row not in matching_rows:
             matching_rows.append(row)
 
-  # Format results into clusters
   clusters = []
   valid_coords = []
   coord_map = {}
