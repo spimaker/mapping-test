@@ -45,8 +45,13 @@ class Form1(Form1Template):
       print(f"Error loading countries: {e}")
 
     self.Cluster_Type_Dropdown.items = [
-      ("Miles Perimeter", "miles"), ("Kilometers Perimeter", "kilometers"),
-      ("Postal Code", "postal"), ("City", "city"), ("State", "state"), ("Country", "country")
+      ("Global Region", "global_region"),
+      ("Country", "country"),
+      ("State / Province", "state"),
+      ("City", "city"),
+      ("Postal Code", "postal"),
+      ("Miles Radius", "miles"),
+      ("Kilometers Radius", "kilometers")
     ]
 
     self.Threshold_Dropdown.items = [

@@ -10,6 +10,7 @@ from geopy.distance import geodesic
 import uuid
 import requests
 import math
+import pycountry_convert as pc
 
 REGION_MAPPINGS = {
   # --- US States ---
@@ -87,6 +88,26 @@ REGION_MAPPINGS = {
   "act": ("ACT", "Australian Capital Territory"), "australian capital territory": ("ACT", "Australian Capital Territory")
 }
 
+def get_global_region(country_code):
+  """Maps a 2-letter ISO country code to one of the 6 major global regions using pycountry-convert."""
+  if not country_code:
+    return "Unassigned"
+  try:
+    continent_code = pc.country_alpha2_to_continent_code(country_code.strip().upper())
+    # Map continent codes to your exact 6 global regions
+    region_mapping = {
+      'NA': 'North America',
+      'SA': 'South America',
+      'EU': 'Europe',
+      'AS': 'Asia',
+      'AF': 'Africa',
+      'OC': 'Oceania'
+    }
+    return region_mapping.get(continent_code, 'Other / Unassigned')
+  except Exception:
+    return 'Other / Unassigned'
+
+
 def standardize_region(raw_input):
   if not raw_input:
     return "", ""
@@ -117,7 +138,7 @@ def calculate_distance_miles(lat1, lon1, lat2, lon2):
 def cluster_rows(rows, cluster_type='miles', threshold=25):
   """
   Aggregates database rows into clusters based on the selected cluster type 
-  (city, state, postal, country, miles, kilometers).
+  (global_region, city, state, postal, country, miles, kilometers).
   """
   if not rows:
     return []
@@ -170,7 +191,7 @@ def cluster_rows(rows, cluster_type='miles', threshold=25):
       })
     return formatted_clusters
 
-  # --- Administrative Groupings (City, State, Postal, Country) ---
+  # --- Administrative Groupings (Global Region, Country, State, Postal, City) ---
   groups = {}
   for row in rows:
     lat = row.get('latitude') or row.get('Latitude_Value')
@@ -180,12 +201,15 @@ def cluster_rows(rows, cluster_type='miles', threshold=25):
 
     username = row.get('user_name') or row.get('User_Name_Value', 'Unknown User')
 
-    if cluster_type == 'city':
-      city = (row.get('city') or '').strip().title()
-      state = (row.get('state') or '').strip().upper()
+    if cluster_type == 'global_region':
+      country_code = (row.get('country_code') or '').strip()
+      region_name = get_global_region(country_code)
+      key = region_name
+      label_name = region_name
+    elif cluster_type == 'country':
       country = (row.get('country_code') or '').strip().upper()
-      key = (country, state, city) if city else (round(lat, 2), round(lon, 2))
-      label_name = f"{city}, {state}" if city and state else (city or 'City Cluster')
+      key = country if country else (round(lat, 0), round(lon, 0))
+      label_name = country or 'Country Cluster'
     elif cluster_type == 'state':
       state = (row.get('state') or '').strip().upper()
       country = (row.get('country_code') or '').strip().upper()
@@ -196,10 +220,12 @@ def cluster_rows(rows, cluster_type='miles', threshold=25):
       country = (row.get('country_code') or '').strip().upper()
       key = (country, postal) if postal else (round(lat, 2), round(lon, 2))
       label_name = postal or 'Postal Cluster'
-    elif cluster_type == 'country':
+    elif cluster_type == 'city':
+      city = (row.get('city') or '').strip().title()
+      state = (row.get('state') or '').strip().upper()
       country = (row.get('country_code') or '').strip().upper()
-      key = country if country else (round(lat, 0), round(lon, 0))
-      label_name = country or 'Country Cluster'
+      key = (country, state, city) if city else (round(lat, 2), round(lon, 2))
+      label_name = f"{city}, {state}" if city and state else (city or 'City Cluster')
     else:
       key = (round(lat, 2), round(lon, 2))
       label_name = "Area Cluster"
