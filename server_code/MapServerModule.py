@@ -1,11 +1,5 @@
 import anvil.email
 import anvil.users
-# This is a server module. It runs on the Anvil server,
-# rather than in the user's browser.
-#
-# To allow anvil.server.call() to call functions here, we mark
-# them with @anvil.server.callable.
-#
 import anvil.server
 import anvil.tables as tables
 import anvil.tables.query as q
@@ -18,104 +12,96 @@ import requests
 import math
 
 # Master region lookup: maps lowercase codes AND full names 
-# to (Database Code, Nominatim Geocode String)
+# to (Database Code, Clean State/Province Name for Nominatim)
 REGION_MAPPINGS = {
   # --- US States ---
-  "al": ("AL", "Alabama, USA"), "alabama": ("AL", "Alabama, USA"),
-  "ak": ("AK", "Alaska, USA"), "alaska": ("AK", "Alaska, USA"),
-  "az": ("AZ", "Arizona, USA"), "arizona": ("AZ", "Arizona, USA"),
-  "ar": ("AR", "Arkansas, USA"), "arkansas": ("AR", "Arkansas, USA"),
-  "ca": ("CA", "California, USA"), "california": ("CA", "California, USA"),
-  "co": ("CO", "Colorado, USA"), "colorado": ("CO", "Colorado, USA"),
-  "ct": ("CT", "Connecticut, USA"), "connecticut": ("CT", "Connecticut, USA"),
-  "de": ("DE", "Delaware, USA"), "delaware": ("DE", "Delaware, USA"),
-  "fl": ("FL", "Florida, USA"), "florida": ("FL", "Florida, USA"),
-  "ga": ("GA", "Georgia, USA"), "georgia": ("GA", "Georgia, USA"),
-  "hi": ("HI", "Hawaii, USA"), "hawaii": ("HI", "Hawaii, USA"),
-  "id": ("ID", "Idaho, USA"), "idaho": ("ID", "Idaho, USA"),
-  "il": ("IL", "Illinois, USA"), "illinois": ("IL", "Illinois, USA"),
-  "in": ("IN", "Indiana, USA"), "indiana": ("IN", "Indiana, USA"),
-  "ia": ("IA", "Iowa, USA"), "iowa": ("IA", "Iowa, USA"),
-  "ks": ("KS", "Kansas, USA"), "kansas": ("KS", "Kansas, USA"),
-  "ky": ("KY", "Kentucky, USA"), "kentucky": ("KY", "Kentucky, USA"),
-  "la": ("LA", "Louisiana, USA"), "louisiana": ("LA", "Louisiana, USA"),
-  "me": ("ME", "Maine, USA"), "maine": ("ME", "Maine, USA"),
-  "md": ("MD", "Maryland, USA"), "maryland": ("MD", "Maryland, USA"),
-  "ma": ("MA", "Massachusetts, USA"), "massachusetts": ("MA", "Massachusetts, USA"),
-  "mi": ("MI", "Michigan, USA"), "michigan": ("MI", "Michigan, USA"),
-  "mn": ("MN", "Minnesota, USA"), "minnesota": ("MN", "Minnesota, USA"),
-  "ms": ("MS", "Mississippi, USA"), "mississippi": ("MS", "Mississippi, USA"),
-  "mo": ("MO", "Missouri, USA"), "missouri": ("MO", "Missouri, USA"),
-  "mt": ("MT", "Montana, USA"), "montana": ("MT", "Montana, USA"),
-  "ne": ("NE", "Nebraska, USA"), "nebraska": ("NE", "Nebraska, USA"),
-  "nv": ("NV", "Nevada, USA"), "nevada": ("NV", "Nevada, USA"),
-  "nh": ("NH", "New Hampshire, USA"), "new hampshire": ("NH", "New Hampshire, USA"),
-  "nj": ("NJ", "New Jersey, USA"), "new jersey": ("NJ", "New Jersey, USA"),
-  "nm": ("NM", "New Mexico, USA"), "new mexico": ("NM", "New Mexico, USA"),
-  "ny": ("NY", "New York, USA"), "new york": ("NY", "New York, USA"),
-  "nc": ("NC", "North Carolina, USA"), "north carolina": ("NC", "North Carolina, USA"),
-  "nd": ("ND", "North Dakota, USA"), "north dakota": ("ND", "North Dakota, USA"),
-  "oh": ("OH", "Ohio, USA"), "ohio": ("OH", "Ohio, USA"),
-  "ok": ("OK", "Oklahoma, USA"), "oklahoma": ("OK", "Oklahoma, USA"),
-  "or": ("OR", "Oregon, USA"), "oregon": ("OR", "Oregon, USA"),
-  "pa": ("PA", "Pennsylvania, USA"), "pennsylvania": ("PA", "Pennsylvania, USA"),
-  "ri": ("RI", "Rhode Island, USA"), "rhode island": ("RI", "Rhode Island, USA"),
-  "sc": ("SC", "South Carolina, USA"), "south carolina": ("SC", "South Carolina, USA"),
-  "sd": ("SD", "South Dakota, USA"), "south dakota": ("SD", "South Dakota, USA"),
-  "tn": ("TN", "Tennessee, USA"), "tennessee": ("TN", "Tennessee, USA"),
-  "tx": ("TX", "Texas, USA"), "texas": ("TX", "Texas, USA"),
-  "ut": ("UT", "Utah, USA"), "utah": ("UT", "Utah, USA"),
-  "vt": ("VT", "Vermont, USA"), "vermont": ("VT", "Vermont, USA"),
-  "va": ("VA", "Virginia, USA"), "virginia": ("VA", "Virginia, USA"),
-  "wa": ("WA", "Washington, USA"), "washington": ("WA", "Washington, USA"),
-  "wv": ("WV", "West Virginia, USA"), "west virginia": ("WV", "West Virginia, USA"),
-  "wi": ("WI", "Wisconsin, USA"), "wisconsin": ("WI", "Wisconsin, USA"),
-  "wy": ("WY", "Wyoming, USA"), "wyoming": ("WY", "Wyoming, USA"),
-  "dc": ("DC", "District of Columbia, USA"), "district of columbia": ("DC", "District of Columbia, USA"),
+  "al": ("AL", "Alabama"), "alabama": ("AL", "Alabama"),
+  "ak": ("AK", "Alaska"), "alaska": ("AK", "Alaska"),
+  "az": ("AZ", "Arizona"), "arizona": ("AZ", "Arizona"),
+  "ar": ("AR", "Arkansas"), "arkansas": ("AR", "Arkansas"),
+  "ca": ("CA", "California"), "california": ("CA", "California"),
+  "co": ("CO", "Colorado"), "colorado": ("CO", "Colorado"),
+  "ct": ("CT", "Connecticut"), "connecticut": ("CT", "Connecticut"),
+  "de": ("DE", "Delaware"), "delaware": ("DE", "Delaware"),
+  "fl": ("FL", "Florida"), "florida": ("FL", "Florida"),
+  "ga": ("GA", "Georgia"), "georgia": ("GA", "Georgia"),
+  "hi": ("HI", "Hawaii"), "hawaii": ("HI", "Hawaii"),
+  "id": ("ID", "Idaho"), "idaho": ("ID", "Idaho"),
+  "il": ("IL", "Illinois"), "illinois": ("IL", "Illinois"),
+  "in": ("IN", "Indiana"), "indiana": ("IN", "Indiana"),
+  "ia": ("IA", "Iowa"), "iowa": ("IA", "Iowa"),
+  "ks": ("KS", "Kansas"), "kansas": ("KS", "Kansas"),
+  "ky": ("KY", "Kentucky"), "kentucky": ("KY", "Kentucky"),
+  "la": ("LA", "Louisiana"), "louisiana": ("LA", "Louisiana"),
+  "me": ("ME", "Maine"), "maine": ("ME", "Maine"),
+  "md": ("MD", "Maryland"), "maryland": ("MD", "Maryland"),
+  "ma": ("MA", "Massachusetts"), "massachusetts": ("MA", "Massachusetts"),
+  "mi": ("MI", "Michigan"), "michigan": ("MI", "Michigan"),
+  "mn": ("MN", "Minnesota"), "minnesota": ("MN", "Minnesota"),
+  "ms": ("MS", "Mississippi"), "mississippi": ("MS", "Mississippi"),
+  "mo": ("MO", "Missouri"), "missouri": ("MO", "Missouri"),
+  "mt": ("MT", "Montana"), "montana": ("MT", "Montana"),
+  "ne": ("NE", "Nebraska"), "nebraska": ("NE", "Nebraska"),
+  "nv": ("NV", "Nevada"), "nevada": ("NV", "Nevada"),
+  "nh": ("NH", "New Hampshire"), "new hampshire": ("NH", "New Hampshire"),
+  "nj": ("NJ", "New Jersey"), "new jersey": ("NJ", "New Jersey"),
+  "nm": ("NM", "New Mexico"), "new mexico": ("NM", "New Mexico"),
+  "ny": ("NY", "New York"), "new york": ("NY", "New York"),
+  "nc": ("NC", "North Carolina"), "north carolina": ("NC", "North Carolina"),
+  "nd": ("ND", "North Dakota"), "north dakota": ("ND", "North Dakota"),
+  "oh": ("OH", "Ohio"), "ohio": ("OH", "Ohio"),
+  "ok": ("OK", "Oklahoma"), "oklahoma": ("OK", "Oklahoma"),
+  "or": ("OR", "Oregon"), "oregon": ("OR", "Oregon"),
+  "pa": ("PA", "Pennsylvania"), "pennsylvania": ("PA", "Pennsylvania"),
+  "ri": ("RI", "Rhode Island"), "rhode island": ("RI", "Rhode Island"),
+  "sc": ("SC", "South Carolina"), "south carolina": ("SC", "South Carolina"),
+  "sd": ("SD", "South Dakota"), "south dakota": ("SD", "South Dakota"),
+  "tn": ("TN", "Tennessee"), "tennessee": ("TN", "Tennessee"),
+  "tx": ("TX", "Texas"), "texas": ("TX", "Texas"),
+  "ut": ("UT", "Utah"), "utah": ("UT", "Utah"),
+  "vt": ("VT", "Vermont"), "vermont": ("VT", "Vermont"),
+  "va": ("VA", "Virginia"), "virginia": ("VA", "Virginia"),
+  "wa": ("WA", "Washington"), "washington": ("WA", "Washington"),
+  "wv": ("WV", "West Virginia"), "west virginia": ("WV", "West Virginia"),
+  "wi": ("WI", "Wisconsin"), "wisconsin": ("WI", "Wisconsin"),
+  "wy": ("WY", "Wyoming"), "wyoming": ("WY", "Wyoming"),
+  "dc": ("DC", "District of Columbia"), "district of columbia": ("DC", "District of Columbia"),
 
   # --- Canadian Provinces & Territories ---
-  "ab": ("AB", "Alberta, Canada"), "alberta": ("AB", "Alberta, Canada"),
-  "bc": ("BC", "British Columbia, Canada"), "british columbia": ("BC", "British Columbia, Canada"),
-  "mb": ("MB", "Manitoba, Canada"), "manitoba": ("MB", "Manitoba, Canada"),
-  "nb": ("NB", "New Brunswick, Canada"), "new brunswick": ("NB", "New Brunswick, Canada"),
-  "nl": ("NL", "Newfoundland and Labrador, Canada"), "newfoundland and labrador": ("NL", "Newfoundland and Labrador, Canada"),
-  "ns": ("NS", "Nova Scotia, Canada"), "nova scotia": ("NS", "Nova Scotia, Canada"),
-  "on": ("ON", "Ontario, Canada"), "ontario": ("ON", "Ontario, Canada"),
-  "pe": ("PE", "Prince Edward Island, Canada"), "prince edward island": ("PE", "Prince Edward Island, Canada"),
-  "qc": ("QC", "Quebec, Canada"), "quebec": ("QC", "Quebec, Canada"),
-  "sk": ("SK", "Saskatchewan, Canada"), "saskatchewan": ("SK", "Saskatchewan, Canada"),
-  "yt": ("YT", "Yukon, Canada"), "yukon": ("YT", "Yukon, Canada"),
+  "ab": ("AB", "Alberta"), "alberta": ("AB", "Alberta"),
+  "bc": ("BC", "British Columbia"), "british columbia": ("BC", "British Columbia"),
+  "mb": ("MB", "Manitoba"), "manitoba": ("MB", "Manitoba"),
+  "nb": ("NB", "New Brunswick"), "new brunswick": ("NB", "New Brunswick"),
+  "nl": ("NL", "Newfoundland and Labrador"), "newfoundland and labrador": ("NL", "Newfoundland and Labrador"),
+  "ns": ("NS", "Nova Scotia"), "nova scotia": ("NS", "Nova Scotia"),
+  "on": ("ON", "Ontario"), "ontario": ("ON", "Ontario"),
+  "pe": ("PE", "Prince Edward Island"), "prince edward island": ("PE", "Prince Edward Island"),
+  "qc": ("QC", "Quebec"), "quebec": ("QC", "Quebec"),
+  "sk": ("SK", "Saskatchewan"), "saskatchewan": ("SK", "Saskatchewan"),
+  "yt": ("YT", "Yukon"), "yukon": ("YT", "Yukon"),
 
   # --- Australian States & Territories ---
-  "nsw": ("NSW", "New South Wales, Australia"), "new south wales": ("NSW", "New South Wales, Australia"),
-  "vic": ("VIC", "Victoria, Australia"), "victoria": ("VIC", "Victoria, Australia"),
-  "qld": ("QLD", "Queensland, Australia"), "queensland": ("QLD", "Queensland, Australia"),
-  "sa": ("SA", "South Australia, Australia"), "south australia": ("SA", "South Australia, Australia"),
-  "tas": ("TAS", "Tasmania, Australia"), "tasmania": ("TAS", "Tasmania, Australia"),
-  "act": ("ACT", "Australian Capital Territory, Australia"), "australian capital territory": ("ACT", "Australian Capital Territory, Australia")
+  "nsw": ("NSW", "New South Wales"), "new south wales": ("NSW", "New South Wales"),
+  "vic": ("VIC", "Victoria"), "victoria": ("VIC", "Victoria"),
+  "qld": ("QLD", "Queensland"), "queensland": ("QLD", "Queensland"),
+  "sa": ("SA", "South Australia"), "south australia": ("SA", "South Australia"),
+  "tas": ("TAS", "Tasmania"), "tasmania": ("TAS", "Tasmania"),
+  "act": ("ACT", "Australian Capital Territory"), "australian capital territory": ("ACT", "Australian Capital Territory")
 }
 
 def standardize_region(raw_input):
-  """
-    Takes any user state input (e.g. 'ok', 'OK', 'Oklahoma'), 
-    returns a tuple: (db_stored_code, nominatim_geocode_string).
-    """
   if not raw_input:
     return "", ""
-
   cleaned = raw_input.strip().lower()
   if cleaned in REGION_MAPPINGS:
     return REGION_MAPPINGS[cleaned]
-
   fallback_code = raw_input.strip().upper() if len(raw_input.strip()) <= 3 else raw_input.strip().title()
   return fallback_code, raw_input.strip()
-
 
 @anvil.server.callable
 def get_country_list():
   countries = [(country.name, country.alpha_2) for country in pycountry.countries]
   return sorted(countries, key=lambda x: x[0])
-
 
 @anvil.server.callable
 def save_map_item(form_data):
@@ -205,7 +191,6 @@ def save_map_item(form_data):
     'all_items': items_list
   }
 
-
 @anvil.server.callable
 def get_clustered_data(cluster_type='miles', threshold=25):
   all_items = list(app_tables.mapitems.search())
@@ -243,7 +228,6 @@ def get_clustered_data(cluster_type='miles', threshold=25):
 
   return clusters
 
-
 def calculate_distance_miles(lat1, lon1, lat2, lon2):
   if None in (lat1, lon1, lat2, lon2):
     return float('inf')
@@ -257,36 +241,47 @@ def calculate_distance_miles(lat1, lon1, lat2, lon2):
   c = 2 * math.asin(math.sqrt(a))
   return R * c
 
-
 def geocode_multiple_addresses(addr1="", city="", state_str="", postal="", country_code=""):
   """
-  Geocodes using Nominatim's structured parameters (street, city, state, postalcode) 
-  instead of free-form strings, completely eliminating business and POI matches.
+  Geocodes using structured parameters first. If structured returns nothing 
+  (e.g., for counties like Merseyside or regions like Britain), it falls back 
+  to a robust free-form query restricted by country code.
   """
   try:
     url = "https://nominatim.openstreetmap.org/search"
     headers = {'User-Agent': 'AnvilMapApp/1.0'}
 
+    # --- ATTEMPT 1: Structured Query ---
     params = {
       'format': 'json',
       'addressdetails': 1,
       'limit': 5
     }
-
-    if addr1:
-      params['street'] = addr1
-    if city:
-      params['city'] = city
-    if state_str:
-      params['state'] = state_str
-    if postal:
-      params['postalcode'] = postal
-
-    if country_code:
-      params['countrycodes'] = country_code.lower()
+    if addr1: params['street'] = addr1
+    if city: params['city'] = city
+    if state_str: params['state'] = state_str
+    if postal: params['postalcode'] = postal
+    if country_code: params['countrycodes'] = country_code.lower()
 
     response = requests.get(url, params=params, headers=headers, timeout=5)
     data = response.json()
+
+    # --- ATTEMPT 2: Free-form Fallback if Structured yields 0 results ---
+    if not data and (city or state_str or postal or addr1):
+      query_parts = [p for p in [addr1, city, state_str, postal] if p]
+      free_query = ", ".join(query_parts)
+      fallback_params = {
+        'q': free_query,
+        'format': 'json',
+        'addressdetails': 1,
+        'layer': 'address',
+        'limit': 5
+      }
+      if country_code:
+        fallback_params['countrycodes'] = country_code.lower()
+
+      response = requests.get(url, params=fallback_params, headers=headers, timeout=5)
+      data = response.json()
 
     results = []
     for item in data:
@@ -306,9 +301,8 @@ def geocode_multiple_addresses(addr1="", city="", state_str="", postal="", count
 
     return results
   except Exception as e:
-    print(f"Structured geocoding error: {e}")
+    print(f"Geocoding error: {e}")
     return []
-
 
 @anvil.server.callable
 def search_map_items_by_fields(search_data):
