@@ -11,8 +11,6 @@ import uuid
 import requests
 import math
 
-# Master region lookup: maps lowercase codes AND full names 
-# to (Database Code, Clean State/Province Name for Nominatim)
 REGION_MAPPINGS = {
   # --- US States ---
   "al": ("AL", "Alabama"), "alabama": ("AL", "Alabama"),
@@ -103,6 +101,76 @@ def get_country_list():
   countries = [(country.name, country.alpha_2) for country in pycountry.countries]
   return sorted(countries, key=lambda x: x[0])
 
+def cluster_rows(rows, cluster_type='miles', threshold=25):
+  groups = {}
+
+  for row in rows:
+    lat = row.get('latitude') or row.get('Latitude_Value')
+    lon = row.get('longitude') or row.get('Longitude_Value')
+    if lat is None or lon is None:
+      continue
+
+    username = row.get('user_name') or row.get('User_Name_Value', 'Unknown User')
+
+    if cluster_type == 'city':
+      city = (row.get('city') or '').strip().title()
+      state = (row.get('state') or '').strip().upper()
+      country = (row.get('country_code') or '').strip().upper()
+      key = (country, state, city) if city else (round(lat, 2), round(lon, 2))
+      label_name = f"{city}, {state}" if city and state else (city or 'City Cluster')
+    elif cluster_type == 'state':
+      state = (row.get('state') or '').strip().upper()
+      country = (row.get('country_code') or '').strip().upper()
+      key = (country, state) if state else (round(lat, 1), round(lon, 1))
+      label_name = state or 'State Cluster'
+    elif cluster_type == 'postal':
+      postal = (row.get('postal_code') or '').strip().upper()
+      country = (row.get('country_code') or '').strip().upper()
+      key = (country, postal) if postal else (round(lat, 2), round(lon, 2))
+      label_name = postal or 'Postal Cluster'
+    elif cluster_type == 'country':
+      country = (row.get('country_code') or '').strip().upper()
+      key = country if country else (round(lat, 0), round(lon, 0))
+      label_name = country or 'Country Cluster'
+    else:
+      key = (round(lat, 2), round(lon, 2))
+      label_name = "Area Cluster"
+
+    if key not in groups:
+      groups[key] = {
+        'lats': [],
+        'lons': [],
+        'usernames': [],
+        'label_name': label_name
+      }
+    groups[key]['lats'].append(lat)
+    groups[key]['lons'].append(lon)
+    if username not in groups[key]['usernames']:
+      groups[key]['usernames'].append(username)
+
+  clusters = []
+  for key, data in groups.items():
+    avg_lat = sum(data['lats']) / len(data['lats'])
+    avg_lon = sum(data['lons']) / len(data['lons'])
+    count = len(data['usernames'])
+
+    clusters.append({
+      'latitude': avg_lat,
+      'longitude': avg_lon,
+      'count': count,
+      'color': '#34A853',
+      'label': f"{data['label_name']} ({count} records)",
+      'usernames': data['usernames'],
+      'sub_label': None
+    })
+
+  return clusters
+
+@anvil.server.callable
+def get_clustered_data(cluster_type='miles', threshold=25):
+  all_items = list(app_tables.mapitems.search())
+  return cluster_rows(all_items, cluster_type=cluster_type, threshold=threshold)
+
 @anvil.server.callable
 def save_map_item(form_data):
   user_name = form_data.get('User_Name_Value')
@@ -191,67 +259,11 @@ def save_map_item(form_data):
     'all_items': items_list
   }
 
-@anvil.server.callable
-def get_clustered_data(cluster_type='miles', threshold=25):
-  all_items = list(app_tables.mapitems.search())
-
-  coord_map = {}
-  for row in all_items:
-    lat = row.get('latitude') or row.get('Latitude_Value')
-    lon = row.get('longitude') or row.get('Longitude_Value')
-
-    if lat is not None and lon is not None:
-      key = (round(lat, 2), round(lon, 2)) if cluster_type in ['miles', 'kilometers'] else (round(lat, 4), round(lon, 4))
-
-      if key not in coord_map:
-        coord_map[key] = {
-          'latitude': lat,
-          'longitude': lon,
-          'usernames': []
-        }
-      username = row.get('user_name') or row.get('User_Name_Value', 'Unknown User')
-      if username not in coord_map[key]['usernames']:
-        coord_map[key]['usernames'].append(username)
-
-  clusters = []
-  for key, data in coord_map.items():
-    count = len(data['usernames'])
-    clusters.append({
-      'latitude': data['latitude'],
-      'longitude': data['longitude'],
-      'count': count,
-      'color': '#34A853',
-      'label': f"Area Cluster ({count} records)",
-      'usernames': data['usernames'],
-      'sub_label': None
-    })
-
-  return clusters
-
-def calculate_distance_miles(lat1, lon1, lat2, lon2):
-  if None in (lat1, lon1, lat2, lon2):
-    return float('inf')
-
-  R = 3958.8  
-  dlat = math.radians(lat2 - lat1)
-  dlon = math.radians(lon2 - lon1)
-  a = (math.sin(dlat / 2) ** 2 +
-       math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) *
-       math.sin(dlon / 2) ** 2)
-  c = 2 * math.asin(math.sqrt(a))
-  return R * c
-
 def geocode_multiple_addresses(addr1="", city="", state_str="", postal="", country_code=""):
-  """
-  Geocodes using structured parameters first. If structured returns nothing 
-  (e.g., for counties like Merseyside or regions like Britain), it falls back 
-  to a robust free-form query restricted by country code.
-  """
   try:
     url = "https://nominatim.openstreetmap.org/search"
     headers = {'User-Agent': 'AnvilMapApp/1.0'}
 
-    # --- ATTEMPT 1: Structured Query ---
     params = {
       'format': 'json',
       'addressdetails': 1,
@@ -266,7 +278,6 @@ def geocode_multiple_addresses(addr1="", city="", state_str="", postal="", count
     response = requests.get(url, params=params, headers=headers, timeout=5)
     data = response.json()
 
-    # --- ATTEMPT 2: Free-form Fallback if Structured yields 0 results ---
     if not data and (city or state_str or postal or addr1):
       query_parts = [p for p in [addr1, city, state_str, postal] if p]
       free_query = ", ".join(query_parts)
@@ -311,13 +322,14 @@ def search_map_items_by_fields(search_data):
   raw_state = (search_data.get('State_Province_Region_Value') or '').strip()
   postal = (search_data.get('Postal_Code_Value') or '').strip()
   country = (search_data.get('Country_Code_Value') or '').strip()
+  cluster_type = search_data.get('cluster_type', 'miles')
+  threshold = search_data.get('threshold', 25)
 
   db_state_code, geocode_state_str = standardize_region(raw_state)
 
   sel_lat = search_data.get('Selected_Latitude')
   sel_lon = search_data.get('Selected_Longitude')
 
-  matching_rows = []
   center_lat = None
   center_lon = None
   zoom = 11
@@ -327,33 +339,14 @@ def search_map_items_by_fields(search_data):
     center_lon = sel_lon
     zoom = 12
   else:
-    search_args = {}
-    if addr1:
-      search_args['address_1'] = q.ilike(f"%{addr1}%")
-    if city:
-      search_args['city'] = q.ilike(f"%{city}%")
-    if raw_state:
-      search_args['state'] = q.any_of(
-        q.ilike(f"%{db_state_code}%"), 
-        q.ilike(f"%{raw_state}%")
-      )
-    if postal:
-      search_args['postal_code'] = q.ilike(f"%{postal}%")
-    if country:
-      search_args['country_code'] = country
+    # Determine zoom level based on what was searched
+    if addr1: zoom = 15
+    elif city or postal: zoom = 12
+    elif raw_state: zoom = 8
+    elif country: zoom = 5
 
-    matching_rows = list(app_tables.mapitems.search(**search_args)) if search_args else []
-
-    if addr1:
-      zoom = 15
-    elif city or postal:
-      zoom = 12
-    elif raw_state:
-      zoom = 8
-    elif country:
-      zoom = 5
-
-    if not matching_rows and any([addr1, city, raw_state, postal, country]):
+    # Geocode search target to set the camera view (even if 0 records match)
+    if any([addr1, city, raw_state, postal, country]):
       geocoded_results = geocode_multiple_addresses(
         addr1=addr1,
         city=city,
@@ -368,60 +361,18 @@ def search_map_items_by_fields(search_data):
           'options': geocoded_results
         }
 
-      if not geocoded_results and (city or raw_state or addr1):
-        raise Exception("Could not locate this location automatically within the selected country.")
-
       if geocoded_results:
         center_lat = geocoded_results[0]['latitude']
         center_lon = geocoded_results[0]['longitude']
 
-  if center_lat and center_lon and (addr1 or city or postal or sel_lat):
-    all_items = app_tables.mapitems.search()
-    for row in all_items:
-      r_lat = row.get('latitude') or row.get('Latitude_Value')
-      r_lon = row.get('longitude') or row.get('Longitude_Value')
-      if r_lat and r_lon:
-        dist = calculate_distance_miles(center_lat, center_lon, r_lat, r_lon)
-        if dist <= 10:
-          if row not in matching_rows:
-            matching_rows.append(row)
+  # Fetch ALL database records so zooming out always shows global clusters
+  all_items = list(app_tables.mapitems.search())
+  clusters = cluster_rows(all_items, cluster_type=cluster_type, threshold=threshold)
 
-  clusters = []
-  valid_coords = []
-  coord_map = {}
-
-  for row in matching_rows:
-    lat = row.get('latitude') or row.get('Latitude_Value')
-    lon = row.get('longitude') or row.get('Longitude_Value')
-
-    if lat is not None and lon is not None:
-      valid_coords.append((lat, lon))
-      key = (round(lat, 5), round(lon, 5))
-      if key not in coord_map:
-        coord_map[key] = {
-          'latitude': lat,
-          'longitude': lon,
-          'usernames': []
-        }
-      username = row.get('user_name') or row.get('User_Name_Value', 'Unknown User')
-      if username not in coord_map[key]['usernames']:
-        coord_map[key]['usernames'].append(username)
-
-  for key, data in coord_map.items():
-    count = len(data['usernames'])
-    clusters.append({
-      'latitude': data['latitude'],
-      'longitude': data['longitude'],
-      'count': count,
-      'color': '#34A853',
-      'label': f"Search Match ({count} records)",
-      'usernames': data['usernames'],
-      'sub_label': None
-    })
-
-  if not center_lat and valid_coords:
-    center_lat = sum(lat for lat, lon in valid_coords) / len(valid_coords)
-    center_lon = sum(lon for lat, lon in valid_coords) / len(valid_coords)
+  # Fallback center if no search query was entered
+  if not center_lat and clusters:
+    center_lat = clusters[0]['latitude']
+    center_lon = clusters[0]['longitude']
 
   return {
     'status': 'success',

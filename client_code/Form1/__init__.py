@@ -18,6 +18,9 @@ class Form1(Form1Template):
     self.current_lat = 34.0522
     self.current_lon = -118.2437
 
+    # Track the last executed search parameters so we can re-cluster on the fly
+    self.last_search_data = None
+
     # Set Form properties and Data Bindings
     self.init_components(**properties)
 
@@ -114,7 +117,19 @@ class Form1(Form1Template):
   @anvil.handle("Cluster_Type_Dropdown", "change")
   def Cluster_Type_Dropdown_change(self, **event_args):
     self.update_threshold_visibility()
-    self.Load_Clusters_Button_click()
+    # If we have an active search, re-run the search with the new cluster type; otherwise load global clusters
+    if self.last_search_data:
+      self.rerun_last_search()
+    else:
+      self.Load_Clusters_Button_click()
+
+  @anvil.handle("Threshold_Dropdown", "change")
+  def Threshold_Dropdown_change(self, **event_args):
+    """Re-runs the search or re-loads clusters when the distance threshold changes."""
+    if self.last_search_data:
+      self.rerun_last_search()
+    else:
+      self.Load_Clusters_Button_click()
 
   @anvil.handle("Load_Clusters_Button", "click")
   def Load_Clusters_Button_click(self, **event_args):
@@ -169,6 +184,25 @@ class Form1(Form1Template):
       return
 
     search_data = self._get_address_input_data()
+    search_data['cluster_type'] = self.Cluster_Type_Dropdown.selected_value
+    search_data['threshold'] = self.Threshold_Dropdown.selected_value if self.Cluster_Type_Dropdown.selected_value in ['miles', 'kilometers'] else None
+
+    # Save search criteria for dynamic re-clustering
+    self.last_search_data = search_data
+    self.execute_search(search_data)
+
+  def rerun_last_search(self):
+    """Re-runs the last active search using updated dropdown parameters (like cluster type)."""
+    if not self.last_search_data:
+      return
+    # Update cluster settings in stored criteria
+    self.last_search_data['cluster_type'] = self.Cluster_Type_Dropdown.selected_value
+    self.last_search_data['threshold'] = self.Threshold_Dropdown.selected_value if self.Cluster_Type_Dropdown.selected_value in ['miles', 'kilometers'] else None
+
+    self.execute_search(self.last_search_data)
+
+  def execute_search(self, search_data):
+    """Sends search data to server and renders map results."""
     try:
       result = anvil.server.call('search_map_items_by_fields', search_data)
 
@@ -211,6 +245,7 @@ class Form1(Form1Template):
     if hasattr(self, 'Country_Code_Value'):
       self.Country_Code_Value.selected_value = None
 
+    self.last_search_data = None
     anvil.Notification("Form cleared.").show()
 
   # ==========================================
