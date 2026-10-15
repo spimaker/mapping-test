@@ -10,6 +10,11 @@ class RegionRowTemplate(RegionRowTemplateTemplate):
   def __init__(self, **properties):
     self.init_components(**properties)
 
+    # 1. Create the row flow container with tight spacing
+    row_flow = anvil.FlowPanel(align='left', spacing='none')
+    self.column_panel_1.add_component(row_flow)
+
+    # 2. Define your columns
     columns = [
       ('name', 250, 'left'),
       ('total', 140, 'center'),
@@ -20,15 +25,15 @@ class RegionRowTemplate(RegionRowTemplateTemplate):
       ('year', 70, 'center')
     ]
 
+    # 3. Add labels into the row_flow container instead of column_panel_1 directly
     self.labels = {}
     for key, width, align in columns:
       lbl = anvil.Label(width=width, align=align)
-      self.column_panel_1.add_component(lbl)
+      row_flow.add_component(lbl)
       self.labels[key] = lbl
 
   def set_item_data(self, item):
     """Explicitly called to populate the row data"""
-    print("SET_ITEM_DATA CALLED WITH:", item)
     if not item:
       return
 

@@ -88,13 +88,13 @@ REGION_MAPPINGS = {
   "act": ("ACT", "Australian Capital Territory"), "australian capital territory": ("ACT", "Australian Capital Territory")
 }
 
+@anvil.server.callable
 def get_global_region(country_code):
   """Maps a 2-letter ISO country code to one of the 6 major global regions using pycountry-convert."""
   if not country_code:
     return "Unassigned"
   try:
     continent_code = pc.country_alpha2_to_continent_code(country_code.strip().upper())
-    # Map continent codes to your exact 6 global regions
     region_mapping = {
       'NA': 'North America',
       'SA': 'South America',
@@ -471,3 +471,32 @@ def search_map_items_by_fields(search_data):
     'longitude': center_lon,
     'zoom': zoom
   }
+
+  @anvil.server.callable
+  def get_scorecard_hierarchy_data():
+    """
+  Fetches map items and aggregates them into Global Region -> Country -> City 
+  with placeholder or real time-bracket metrics.
+  """
+  all_items = list(app_tables.mapitems.search())
+
+  # Structure: { region: { country: { city: [metrics...] } } }
+  hierarchy = {}
+
+  for row in all_items:
+    country_code = (row.get('country_code') or '').strip()
+    region_name = get_global_region(country_code) # Uses pycountry-convert
+    country_name = pycountry.countries.get(alpha_2=country_code.upper())
+    country_str = country_name.name if country_name else (country_code or 'Unknown')
+    city_str = (row.get('city') or 'Unknown City').strip().title()
+
+    if region_name not in hierarchy:
+      hierarchy[region_name] = {}
+    if country_str not in hierarchy[region_name]:
+      hierarchy[region_name][country_str] = {}
+    if city_str not in hierarchy[region_name][country_str]:
+      hierarchy[region_name][country_str][city_str] = 0
+
+    hierarchy[region_name][country_str][city_str] += 1
+
+  return hierarchy
