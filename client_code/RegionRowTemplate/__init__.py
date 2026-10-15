@@ -26,11 +26,10 @@ class RegionRowTemplate(RegionRowTemplateTemplate):
     self.labels = {}
     for key, width, align in columns:
       if key == 'name':
-        # Use a Link for the name column so it is natively clickable
-        comp = anvil.Link(align=align)
+        # Added width=width here so it respects the 250px column boundary!
+        comp = anvil.Link(width=width, align=align)
         comp.set_event_handler('click', self.row_clicked)
       else:
-        # Use regular Labels for the numeric metric columns
         comp = anvil.Label(width=width, align=align)
 
       row_flow.add_component(comp)
