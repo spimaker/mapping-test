@@ -10,11 +10,9 @@ class RegionRowTemplate(RegionRowTemplateTemplate):
   def __init__(self, **properties):
     self.init_components(**properties)
 
-    # 1. Create the row flow container with tight spacing
     row_flow = anvil.FlowPanel(align='left', spacing='none')
     self.column_panel_1.add_component(row_flow)
 
-    # 2. Define your columns
     columns = [
       ('name', 250, 'left'),
       ('total', 140, 'center'),
@@ -25,15 +23,22 @@ class RegionRowTemplate(RegionRowTemplateTemplate):
       ('year', 70, 'center')
     ]
 
-    # 3. Add labels into the row_flow container instead of column_panel_1 directly
     self.labels = {}
     for key, width, align in columns:
-      lbl = anvil.Label(width=width, align=align)
-      row_flow.add_component(lbl)
-      self.labels[key] = lbl
+      if key == 'name':
+        # Use a Link for the name column so it is natively clickable
+        comp = anvil.Link(align=align)
+        comp.set_event_handler('click', self.row_clicked)
+      else:
+        # Use regular Labels for the numeric metric columns
+        comp = anvil.Label(width=width, align=align)
+
+      row_flow.add_component(comp)
+      self.labels[key] = comp
 
   def set_item_data(self, item):
     """Explicitly called to populate the row data"""
+    self.item = item
     if not item:
       return
 
@@ -46,3 +51,9 @@ class RegionRowTemplate(RegionRowTemplateTemplate):
     self.labels['month'].text = str(metrics[3])
     self.labels['quarter'].text = str(metrics[4])
     self.labels['year'].text = str(metrics[5])
+
+  def row_clicked(self, **event_args):
+    """Fires when the row name link is clicked, bubbling up to Scorecard"""
+    form = get_open_form()
+    if hasattr(form, 'toggle_row'):
+      form.toggle_row(self.item)

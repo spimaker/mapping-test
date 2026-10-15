@@ -6,6 +6,7 @@ import anvil.tables as tables
 import anvil.tables.query as q
 from anvil.tables import app_tables
 
+
 class Scorecard(ScorecardTemplate):
   def __init__(self, **properties):
     self.init_components(**properties)
@@ -32,6 +33,7 @@ class Scorecard(ScorecardTemplate):
 
   def load_scorecard_data(self):
     # Fetch data from server
+    #print("TEST PING:", anvil.server.call('test_ping'))
     self.raw_hierarchy_data = anvil.server.call('get_scorecard_hierarchy_data')
     self.refresh_table_view()
 

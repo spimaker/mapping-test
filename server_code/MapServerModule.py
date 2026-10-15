@@ -89,6 +89,10 @@ REGION_MAPPINGS = {
 }
 
 @anvil.server.callable
+def test_ping():
+  return "pong"
+
+@anvil.server.callable
 def get_global_region(country_code):
   """Maps a 2-letter ISO country code to one of the 6 major global regions using pycountry-convert."""
   if not country_code:
@@ -106,7 +110,6 @@ def get_global_region(country_code):
     return region_mapping.get(continent_code, 'Other / Unassigned')
   except Exception:
     return 'Other / Unassigned'
-
 
 def standardize_region(raw_input):
   if not raw_input:
@@ -357,11 +360,11 @@ def geocode_multiple_addresses(addr1="", city="", state_str="", postal="", count
   try:
     url = "https://nominatim.openstreetmap.org/search"
     headers = {'User-Agent': 'AnvilMapApp/1.0'}
-    
+
     params = {
-        'format': 'json',
-        'addressdetails': 1,
-        'limit': 5
+      'format': 'json',
+      'addressdetails': 1,
+      'limit': 5
     }
     if addr1: params['street'] = addr1
     if city: params['city'] = city
@@ -371,20 +374,20 @@ def geocode_multiple_addresses(addr1="", city="", state_str="", postal="", count
 
     response = requests.get(url, params=params, headers=headers, timeout=5)
     data = response.json()
-    
+
     if not data and (city or state_str or postal or addr1):
       query_parts = [p for p in [addr1, city, state_str, postal] if p]
       free_query = ", ".join(query_parts)
       fallback_params = {
-          'q': free_query,
-          'format': 'json',
-          'addressdetails': 1,
-          'layer': 'address',
-          'limit': 5
+        'q': free_query,
+        'format': 'json',
+        'addressdetails': 1,
+        'layer': 'address',
+        'limit': 5
       }
       if country_code:
         fallback_params['countrycodes'] = country_code.lower()
-      
+
       response = requests.get(url, params=fallback_params, headers=headers, timeout=5)
       data = response.json()
 
@@ -394,7 +397,7 @@ def geocode_multiple_addresses(addr1="", city="", state_str="", postal="", count
       res_city = addr.get('city') or addr.get('town') or addr.get('village') or addr.get('county') or ''
       res_state = addr.get('state', '')
       res_country = addr.get('country', '')
-      
+
       results.append({
         'display_name': item.get('display_name'),
         'city': res_city,
@@ -403,7 +406,7 @@ def geocode_multiple_addresses(addr1="", city="", state_str="", postal="", count
         'latitude': float(item['lat']),
         'longitude': float(item['lon'])
       })
-      
+
     return results
   except Exception as e:
     print(f"Geocoding error: {e}")
@@ -440,11 +443,11 @@ def search_map_items_by_fields(search_data):
 
     if any([addr1, city, raw_state, postal, country]):
       geocoded_results = geocode_multiple_addresses(
-          addr1=addr1,
-          city=city,
-          state_str=geocode_state_str,
-          postal=postal,
-          country_code=country
+        addr1=addr1,
+        city=city,
+        state_str=geocode_state_str,
+        postal=postal,
+        country_code=country
       )
 
       if len(geocoded_results) > 1:
@@ -472,22 +475,22 @@ def search_map_items_by_fields(search_data):
     'zoom': zoom
   }
 
-  @anvil.server.callable
-  def get_scorecard_hierarchy_data():
-    """
+@anvil.server.callable
+def get_scorecard_hierarchy_data():
+  """
   Fetches map items and aggregates them into Global Region -> Country -> City 
   with placeholder or real time-bracket metrics.
   """
   all_items = list(app_tables.mapitems.search())
 
-  # Structure: { region: { country: { city: [metrics...] } } }
+  # Structure: { region: { country: { city: count } } }
   hierarchy = {}
 
   for row in all_items:
     country_code = (row.get('country_code') or '').strip()
-    region_name = get_global_region(country_code) # Uses pycountry-convert
-    country_name = pycountry.countries.get(alpha_2=country_code.upper())
-    country_str = country_name.name if country_name else (country_code or 'Unknown')
+    region_name = get_global_region(country_code)
+    country_obj = pycountry.countries.get(alpha_2=country_code.upper())
+    country_str = country_obj.name if country_obj else (country_code or 'Unknown')
     city_str = (row.get('city') or 'Unknown City').strip().title()
 
     if region_name not in hierarchy:
