@@ -1,11 +1,5 @@
 <anvil-form container="ColumnPanel">
-  <anvil-component type="Label" name="header_label" prop:align="center" prop:text="Scorecard
-" prop:bold="true" container:grid_position="ZBFYBK,HZLRVR"></anvil-component>
-  <anvil-component type="Label" name="label_2" container:grid_position="CSUSXW,QMLKJT"></anvil-component>
-  <anvil-component type="Label" name="label_1" prop:text="Change Over Time
-" prop:align="center" container:grid_position="CSUSXW,YZAUBG"></anvil-component>
-  <anvil-component type="ColumnPanel" name="scorecard_main" container:grid_position="MVHDOG,NGQHZD">
-    <anvil-component type="FlowPanel" name="table_header" prop:background="theme:Focus Ring" prop:spacing='{"margin":["1",null,"1",null]}' container:grid_position="RAIRMZ,NZRLFE"></anvil-component>
-    <anvil-component type="RepeatingPanel" name="repeating_panel_scorecard" prop:item_template="Mapping_Test.RegionRowTemplate" prop:margin='["1",null,"1",null]' container:grid_position="FRMLNH,IHCTGX"></anvil-component>
+  <anvil-component type="DataGrid" name="data_grid_1" prop:columns='[{"id":"YUPELF","data_key":"column_1","title":"Name","width":"250"},{"id":"JKSDUP","title":"Total","data_key":"column_1","width":"140"},{"id":"VJQQOR","title":"Day","data_key":"column_2","width":"70"},{"id":"OJLQEN","title":"Week","data_key":"column_3","width":"70"},{"id":"WYDXGF","data_key":"column_1","title":"Month","width":"70"},{"id":"DDAJTP","data_key":"column_1","title":"Quarter","width":"70"},{"id":"XFXZHC","data_key":"column_2","title":"Year","width":"70"}]' container:grid_position="VIQGQV,KZGWJW">
+    <anvil-component type="RepeatingPanel" name="repeating_panel_1" prop:item_template="Mapping_Test.RegionRowTemplate"></anvil-component>
   </anvil-component>
 </anvil-form>

@@ -6,24 +6,9 @@ import anvil.tables as tables
 import anvil.tables.query as q
 from anvil.tables import app_tables
 
-
 class Scorecard(ScorecardTemplate):
   def __init__(self, **properties):
     self.init_components(**properties)
-
-    headers = [
-      ("Region / Country / City", 250, "center"),
-      ("Total", 140, "center"),
-      ("Day", 70, "center"),
-      ("Week", 70, "center"),
-      ("Month", 70, "center"),
-      ("Quarter", 70, "center"),
-      ("Year", 70, "center")
-    ]
-
-    for text, width, alignment in headers:
-      lbl = anvil.Label(text=text, bold=True, width=width, align=alignment)
-      self.table_header.add_component(lbl)
 
     # Track expansion states (e.g. set of region names or "Region:Country" keys)
     self.expanded_nodes = set()
@@ -33,7 +18,6 @@ class Scorecard(ScorecardTemplate):
 
   def load_scorecard_data(self):
     # Fetch data from server
-    #print("TEST PING:", anvil.server.call('test_ping'))
     self.raw_hierarchy_data = anvil.server.call('get_scorecard_hierarchy_data')
     self.refresh_table_view()
 
@@ -43,7 +27,6 @@ class Scorecard(ScorecardTemplate):
     regions = ['North America', 'South America', 'Asia', 'Europe', 'Africa', 'Oceania']
 
     for region in regions:
-      # Only show region if it exists in data or always show all 6 major regions
       countries_dict = self.raw_hierarchy_data.get(region, {})
 
       is_reg_expanded = region in self.expanded_nodes
@@ -91,10 +74,8 @@ class Scorecard(ScorecardTemplate):
 
   def refresh_table_view(self):
     items = self.get_flattened_rows()
-    self.repeating_panel_scorecard.items = items
-    for child in self.repeating_panel_scorecard.get_components():
-      if hasattr(child, 'set_item_data') and child.item:
-        child.set_item_data(child.item)
+    # Point to the repeating panel inside the DataGrid
+    self.repeating_panel_1.items = items
 
   def toggle_row(self, item):
     """Called when a row is clicked to expand/collapse"""
