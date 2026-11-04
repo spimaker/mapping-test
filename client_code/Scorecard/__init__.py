@@ -74,7 +74,7 @@ class Scorecard(ScorecardTemplate):
 
   def refresh_table_view(self):
     items = self.get_flattened_rows()
-    # Point to the repeating panel inside the DataGrid
+    print("DEBUG ROWS:", items) # Check your output panel
     self.repeating_panel_1.items = items
 
   def toggle_row(self, item):
