@@ -12,13 +12,13 @@ class Scorecard(ScorecardTemplate):
 
     # Configure DataGrid columns programmatically to align headers with data cells
     self.data_grid_1.columns = [
-      {"id": "col_name", "title": "Name", "data_key": "display_name", "width": 250},
-      {"id": "col_total", "title": "Total", "data_key": "total", "width": 80},
-      {"id": "col_day", "title": "Day", "data_key": "day", "width": 80},
-      {"id": "col_week", "title": "Week", "data_key": "week", "width": 80},
-      {"id": "col_month", "title": "Month", "data_key": "month", "width": 80},
-      {"id": "col_quarter", "title": "Quarter", "data_key": "quarter", "width": 80},
-      {"id": "col_year", "title": "Year", "data_key": "year", "width": 80}
+      {"id": "column_1", "title": "Name", "data_key": "display_name", "width": 250},
+      {"id": "column_2", "title": "Total", "data_key": "total", "width": 80},
+      {"id": "column_3", "title": "Day", "data_key": "day", "width": 80},
+      {"id": "column_4", "title": "Week", "data_key": "week", "width": 80},
+      {"id": "column_5", "title": "Month", "data_key": "month", "width": 80},
+      {"id": "column_6", "title": "Quarter", "data_key": "quarter", "width": 80},
+      {"id": "column_7", "title": "Year", "data_key": "year", "width": 80}
     ]
 
     # Track expansion states (e.g. set of region names or "Region:Country" keys)
