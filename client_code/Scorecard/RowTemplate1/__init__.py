@@ -1,4 +1,4 @@
-from ._anvil_designer import ItemTemplate1Template
+from ._anvil_designer import RowTemplate1Template
 from anvil import *
 import anvil.server
 import anvil.users
@@ -7,7 +7,7 @@ import anvil.tables.query as q
 from anvil.tables import app_tables
 
 
-class ItemTemplate1(ItemTemplate1Template):
+class RowTemplate1(RowTemplate1Template):
   def __init__(self, **properties):
     # Set Form properties and Data Bindings.
     super().__init__(**properties)

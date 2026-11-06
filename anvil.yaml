@@ -47,6 +47,10 @@ db_schema:
       client_hidden: false
       name: id
       type: string
+    - admin_ui: {order: 11, width: 200}
+      client_hidden: false
+      name: date_time
+      type: datetime
     indexes: []
     server: full
     title: MapItems

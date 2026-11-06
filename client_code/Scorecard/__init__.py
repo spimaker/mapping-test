@@ -1,102 +1,33 @@
 from ._anvil_designer import ScorecardTemplate
-from anvil import *
 import anvil.server
-import anvil.users
-import anvil.tables as tables
-import anvil.tables.query as q
-from anvil.tables import app_tables
+# ... other imports ...
 
 class Scorecard(ScorecardTemplate):
   def __init__(self, **properties):
-    self.init_components(**properties)
-
-    # Configure DataGrid columns programmatically to align headers with data cells
+    # Conversion programs
+    # Run only once and then comment out the call
+    #anvil.server.call('populate_random_dates')
+    #
+    
+    super().__init__(**properties)
+   
     self.data_grid_1.columns = [
-      {"id": "col_name", "title": "Name", "data_key": "display_name", "width": 250},
-      {"id": "col_total", "title": "Total", "data_key": "total", "width": 80},
-      {"id": "col_day", "title": "Day", "data_key": "day", "width": 80},
-      {"id": "col_week", "title": "Week", "data_key": "week", "width": 80},
-      {"id": "col_month", "title": "Month", "data_key": "month", "width": 80},
-      {"id": "col_quarter", "title": "Quarter", "data_key": "quarter", "width": 80},
-      {"id": "col_year", "title": "Year", "data_key": "year", "width": 80}
+      {"id": "column_1", "title": "Name", "data_key": "display_name", "width": 250},
+      {"id": "column_2", "title": "Total", "data_key": "column_2", "width": 80},
+      {"id": "column_3", "title": "Day", "data_key": "column_3", "width": 80},
+      {"id": "column_4", "title": "Week", "data_key": "column_4", "width": 80},
+      {"id": "column_5", "title": "Month", "data_key": "column_5", "width": 80},
+      {"id": "column_6", "title": "Quarter", "data_key": "column_6", "width": 80},
+      {"id": "column_7", "title": "Year", "data_key": "column_7", "width": 80}
     ]
 
-    # Track expansion states (e.g. set of region names or "Region:Country" keys)
-    self.expanded_nodes = set()
-    self.raw_hierarchy_data = {}
-
-    self.load_scorecard_data()
-
-  def load_scorecard_data(self):
-    # Fetch data from server
-    self.raw_hierarchy_data = anvil.server.call('get_scorecard_hierarchy_data')
     self.refresh_table_view()
-
-  def get_flattened_rows(self):
-    """Flattens the hierarchy into a list based on what is currently expanded."""
-    display_rows = []
-    regions = ['North America', 'South America', 'Asia', 'Europe', 'Africa', 'Oceania']
-
-    for region in regions:
-      countries_dict = self.raw_hierarchy_data.get(region, {})
-
-      is_reg_expanded = region in self.expanded_nodes
-      reg_prefix = "[-] " if is_reg_expanded else "[+] "
-
-      display_rows.append({
-        'display_name': f"{reg_prefix}{region}",
-        'level': 0,
-        'key': region,
-        'is_expanded': is_reg_expanded,
-        'has_children': len(countries_dict) > 0,
-        'metrics': [sum(sum(cities.values()) for cities in countries_dict.values()), 0, 0, 0, 0, 0]
-      })
-
-      # If region is expanded, add its countries
-      if is_reg_expanded:
-        for country, cities_dict in sorted(countries_dict.items()):
-          country_key = f"{region}:{country}"
-          is_country_expanded = country_key in self.expanded_nodes
-          country_prefix = "    [-] " if is_country_expanded else "    [+] "
-
-          country_total = sum(cities_dict.values())
-          display_rows.append({
-            'display_name': f"{country_prefix}{country}",
-            'level': 1,
-            'key': country_key,
-            'is_expanded': is_country_expanded,
-            'has_children': len(cities_dict) > 0,
-            'metrics': [country_total, 0, 0, 0, 0, 0]
-          })
-
-          # If country is expanded, add its cities
-          if is_country_expanded:
-            for city, count in sorted(cities_dict.items()):
-              display_rows.append({
-                'display_name': f"        {city}",
-                'level': 2,
-                'key': f"{country_key}:{city}",
-                'is_expanded': False,
-                'has_children': False,
-                'metrics': [count, 0, 0, 0, 0, 0]
-              })
-
-    return display_rows
 
   def refresh_table_view(self):
     items = self.get_flattened_rows()
-    print("DEBUG ROWS:", items) # Check your output panel
+    print("DEBUG ROWS:", items)
     self.repeating_panel_1.items = items
 
-  def toggle_row(self, item):
-    """Called when a row is clicked to expand/collapse"""
-    if not item.get('has_children'):
-      return
-
-    key = item['key']
-    if key in self.expanded_nodes:
-      self.expanded_nodes.remove(key)
-    else:
-      self.expanded_nodes.add(key)
-
-    self.refresh_table_view()
+  def get_flattened_rows(self):
+    # Call your server function or return your regions data list here
+    return anvil.server.call('get_flattened_rows')
