@@ -1,4 +1,4 @@
-from ._anvil_designer import RegionRowTemplateTemplate
+from ._anvil_designer import xRegionRowTemplateTemplate
 from anvil import *
 import anvil.server
 import anvil.users
@@ -7,7 +7,7 @@ import anvil.tables.query as q
 from anvil.tables import app_tables
 
 
-class RegionRowTemplate(RegionRowTemplateTemplate):
+class xRegionRowTemplate(xRegionRowTemplateTemplate):
   def __init__(self, **properties):
     # Set Form properties and Data Bindings.
     super().__init__(**properties)
