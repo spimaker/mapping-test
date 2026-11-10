@@ -85,6 +85,14 @@ db_schema:
       client_hidden: false
       name: date_time
       type: datetime
+    - admin_ui: {order: 8.5, width: 200}
+      client_hidden: false
+      name: offset_latitude
+      type: number
+    - admin_ui: {order: 9.5, width: 200}
+      client_hidden: false
+      name: offset_longitude
+      type: number
     indexes: []
     server: full
     title: MapItems

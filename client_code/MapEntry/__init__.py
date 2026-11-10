@@ -241,20 +241,12 @@ class MapEntry(MapEntryTemplate):
         elif name == 'City_Value' and is_custom and not city_value:
           is_empty = True
 
-        # Helper to apply or clear red border on inner input/select elements
-        try:
-          dom = comp.dom_nodes[0]
-          inner_el = dom.querySelector('input, select, textarea') or dom
-          if is_empty:
-            missing_fields.append(name)
-            inner_el.style.border = '2px solid #ea4335'
-            inner_el.style.backgroundColor = '#fce8e6'
-          else:
-            inner_el.style.border = ''
-            inner_el.style.backgroundColor = ''
-        except Exception:
-          if is_empty:
-            missing_fields.append(name)
+        # Native Anvil background property highlighting
+        if is_empty:
+          missing_fields.append(name)
+          comp.background = '#fce8e6'  # Soft error red background
+        else:
+          comp.background = ''        # Clears highlight when filled
 
       if missing_fields:
         alert('Some required fields are missing data', title='Missing Information')
