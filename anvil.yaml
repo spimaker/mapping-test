@@ -1,5 +1,39 @@
 allow_embedding: false
 db_schema:
+  manualcity:
+    client: none
+    columns:
+    - admin_ui: {order: 0, width: 200}
+      client_hidden: false
+      name: id
+      type: number
+    - admin_ui: {order: 1, width: 200}
+      client_hidden: false
+      name: country_code
+      type: string
+    - admin_ui: {order: 2, width: 200}
+      client_hidden: false
+      name: state
+      type: string
+    - admin_ui: {order: 3, width: 200}
+      client_hidden: false
+      name: city
+      type: string
+    - admin_ui: {order: 4, width: 200}
+      client_hidden: false
+      name: latitude
+      type: number
+    - admin_ui: {order: 5, width: 200}
+      client_hidden: false
+      name: longitude
+      type: number
+    - admin_ui: {order: 6, width: 200}
+      client_hidden: false
+      name: date_time
+      type: datetime
+    indexes: []
+    server: full
+    title: ManualCity
   mapitems:
     client: none
     columns:

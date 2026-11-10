@@ -258,7 +258,10 @@ textarea.anvil-text-area:disabled,
 .anvil-radio input:disabled {
   cursor: not-allowed;
 }
-
+.anvil-role-error-border input,
+.anvil-role-error-border select {
+  border: 2px solid #ea4335 !important;
+}
 @media (max-width: 760px) {
   .page-header {
     display: block;
@@ -293,5 +296,4 @@ textarea.anvil-text-area:disabled,
 .anvil-role-highlight-bg textarea,
 .anvil-role-highlight-bg select {
   background-color: #ffb6c1 !important;
-} !important; /* Soft yellow or any hex code */
 }

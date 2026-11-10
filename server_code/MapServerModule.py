@@ -81,17 +81,14 @@ def get_country_list():
     if region in grouped_data:
       grouped_data[region].append({'name': country.name, 'code': code})
 
-  # Sort alphabetically within each region
   for region in grouped_data:
     grouped_data[region].sort(key=lambda x: x['name'])
 
-  # Format into dropdown items: (Display Label, Value)
   dropdown_items = []
   for region in REGION_ORDER:
     for c in grouped_data[region]:
       dropdown_items.append((f'[{region}] {c["name"]}', c['code']))
 
-  # Append any unassigned/territory items at the end
   for c in grouped_data['Other']:
     dropdown_items.append((f'[Other] {c["name"]}', c['code']))
 
@@ -109,8 +106,6 @@ def get_subdivisions_for_country(country_code):
     if not states:
       return []
 
-    # Store the state name as both the display label and the value
-    # so country-state-city can look up cities by state name directly.
     sorted_states = sorted(
         [{'name': s.name} for s in states if s.name],
         key=lambda x: x['name'],
@@ -123,12 +118,11 @@ def get_subdivisions_for_country(country_code):
 
 @anvil.server.callable
 def get_cities_for_state(country_code, state_name):
-  """Fetches cities for a given state name using country-state-city."""
+  """Fetches cities from country-state-city and merges validated entries from ManualCity table."""
   try:
     if not country_code or not state_name:
       return []
 
-    # Retrieve all states for the country to find the matching state iso_code
     states = State.get_states_of_country(country_code)
     target_state_code = None
     for s in states:
@@ -136,15 +130,25 @@ def get_cities_for_state(country_code, state_name):
         target_state_code = s.iso_code
         break
 
-    if not target_state_code:
-      return []
+    city_names = []
+    if target_state_code:
+      cities = City.get_cities_of_state(country_code, target_state_code)
+      if cities:
+        city_names = [c.name for c in cities if hasattr(c, 'name') and c.name]
 
-    cities = City.get_cities_of_state(country_code, target_state_code)
-    if not cities:
-      return []
+    # Merge custom validated cities from ManualCity table cache
+    try:
+      manual_rows = app_tables.manualcity.search(country_code=country_code)
+      for row in manual_rows:
+        r_state = (row.get('state') or '').strip()
+        r_city = (row.get('city') or '').strip()
+        if r_state.lower() == state_name.lower() and r_city:
+          if r_city not in city_names:
+            city_names.append(r_city)
+    except Exception as me:
+      print(f'Error reading ManualCity table: {me}')
 
-    # Access city name via attribute (c.name) instead of dictionary .get()
-    city_names = sorted([c.name for c in cities if hasattr(c, 'name') and c.name])
+    city_names = sorted(list(set(city_names)))
     return [(name, name) for name in city_names]
   except Exception as e:
     print(f'Error loading cities from country-state-city: {e}')
@@ -303,11 +307,61 @@ def get_clustered_data(cluster_type='miles', threshold=25):
 @anvil.server.callable
 def save_map_item(form_data):
   user_name = form_data.get('User_Name_Value')
-  address_1 = form_data.get('Address1_Value')
-  city = form_data.get('City_Value')
-  postal_code = form_data.get('Postal_Code_Value')
-  country_code = form_data.get('Country_Code_Value')
-  db_state = form_data.get('State_Province_Region_Value', '')
+  address_1 = (form_data.get('Address1_Value') or '').strip()
+  
+  city = (form_data.get('Custom_City_Value') or form_data.get('City_Value') or '').strip()
+  postal_code = (form_data.get('Postal_Code_Value') or '').strip()
+  country_code = (form_data.get('Country_Code_Value') or '').strip()
+  db_state = (form_data.get('State_Province_Region_Value') or '').strip()
+  is_custom_entry = form_data.get('Is_Custom_City', False)
+
+  if not city:
+    return {'status': 'error', 'message': 'City is required.'}
+
+  # --- Strict Geocoding & Spurious Data Verification ---
+  geolocated_list = geocode_multiple_addresses(
+      addr1=address_1,
+      city=city,
+      state_str=db_state,
+      postal=postal_code,
+      country_code=country_code,
+  )
+
+  if not geolocated_list:
+    return {
+        'status': 'error',
+        'message': f'Could not verify the location "{address_1}, {city}, {db_state} {postal_code}" as provided. It may be invalid data.'
+    }
+
+  best_match = geolocated_list[0]
+  lat = best_match.get('latitude')
+  lon = best_match.get('longitude')
+  formatted_address = best_match.get('display_name', '')
+
+  if lat is None or lon is None:
+    return {
+        'status': 'error',
+        'message': f'Could not verify the location "{address_1}, {city}, {db_state} {postal_code}" as provided. It may be invalid data.'
+    }
+
+  # --- Strict Postal Code Validation ---
+  if postal_code and best_match.get('postal'):
+    res_postal = best_match.get('postal').strip().replace(' ', '')
+    user_postal = postal_code.strip().replace(' ', '')
+    
+    if not res_postal.startswith(user_postal) and not user_postal.startswith(res_postal):
+      return {
+          'status': 'error',
+          'message': f'Postal code mismatch: The postal code "{postal_code}" does not match the geocoded location\'s postal code ("{best_match.get("postal")}").'
+      }
+
+  # --- State Validation ---
+  res_state = best_match.get('state', '').lower()
+  if db_state and res_state and db_state.lower() not in res_state and res_state not in db_state.lower():
+    return {
+        'status': 'error',
+        'message': f'Location mismatch: The address resolves to "{formatted_address}", which does not match your selected state/province.'
+    }
 
   existing_record = app_tables.mapitems.get(
       user_name=user_name, address_1=address_1, city=city
@@ -331,28 +385,9 @@ def save_map_item(form_data):
         'all_items': items_list,
     }
 
-  lat = form_data.get('Latitude_Value')
-  lon = form_data.get('Longitude_Value')
-  formatted_address = form_data.get('Formatted_Address_Value', '')
-
-  if not lat or not lon:
-    try:
-      geolocated_list = geocode_multiple_addresses(
-          addr1=address_1,
-          city=city,
-          state_str=db_state,
-          postal=postal_code,
-          country_code=country_code,
-      )
-      if geolocated_list:
-        lat = geolocated_list[0]['latitude']
-        lon = geolocated_list[0]['longitude']
-        formatted_address = geolocated_list[0]['display_name']
-    except Exception as e:
-      print(f'Structured saving geocoding error: {e}')
-
   record_id = str(uuid.uuid4())[:8].upper()
 
+  # Save to main map items table
   app_tables.mapitems.add_row(
       id=record_id,
       user_name=user_name,
@@ -365,8 +400,27 @@ def save_map_item(form_data):
       latitude=lat,
       longitude=lon,
       formatted_address=formatted_address,
-      date_time=datetime.utcnow(),  # Added timestamp saving
+      date_time=datetime.utcnow(),
   )
+
+  # Save to ManualCity cache table if it was a validated custom city entry
+  if is_custom_entry:
+    existing_manual = app_tables.manualcity.get(
+        country_code=country_code, state=db_state, city=city
+    )
+    if not existing_manual:
+      max_id = max([r['id'] for r in app_tables.manualcity.search() if r['id'] is not None], default=0)
+      new_manual_id = max_id + 1
+
+      app_tables.manualcity.add_row(
+          id=new_manual_id,
+          country_code=country_code,
+          state=db_state,
+          city=city,
+          latitude=lat,
+          longitude=lon,
+          date_time=datetime.utcnow()
+      )
 
   all_items = app_tables.mapitems.search()
   items_list = [{
@@ -405,7 +459,6 @@ def geocode_multiple_addresses(
     if country_code:
       params['countrycodes'] = country_code.lower()
 
-    # Increased timeout to 12 seconds to handle public server latency
     response = requests.get(url, params=params, headers=headers, timeout=12)
     data = response.json()
 
@@ -439,12 +492,14 @@ def geocode_multiple_addresses(
       )
       res_state = addr.get('state', '')
       res_country = addr.get('country', '')
+      res_postal = addr.get('postcode', '')
 
       results.append({
           'display_name': item.get('display_name'),
           'city': res_city,
           'state': res_state,
           'country': res_country,
+          'postal': res_postal,
           'latitude': float(item['lat']),
           'longitude': float(item['lon']),
       })
