@@ -604,3 +604,54 @@ def get_scorecard_hierarchy_data():
     hierarchy[region_name][country_str][city_str] += 1
 
   return hierarchy
+
+@anvil.server.callable
+def get_map_markers_with_privacy_view(active_record_id=None, show_actuals=True):
+  """Fetches markers: shows red actual + green offset ONLY for the just-entered record.
+     All other records show standard blue offset markers."""
+  all_items = list(app_tables.mapitems.search())
+  markers = []
+
+  for row in all_items:
+    record_id = row.get('id')
+    act_lat = row.get('latitude')
+    act_lon = row.get('longitude')
+    off_lat = row.get('offset_latitude') or act_lat
+    off_lon = row.get('offset_longitude') or act_lon
+    username = row.get('user_name', 'Unknown User')
+    address = row.get('formatted_address', '')
+
+    is_latest = (record_id == active_record_id)
+
+    if act_lat is not None and act_lon is not None:
+      # 1. Actual Location Marker (Only shown for the just-entered record if switch is ON)
+      if is_latest and show_actuals:
+        markers.append({
+            'latitude': act_lat,
+            'longitude': act_lon,
+            'color': 'red',
+            'label': f'[ACTUAL - Just Entered] {username} - {address}',
+            'type': 'actual'
+        })
+
+      # 2. Offset Location Marker
+      if is_latest:
+        # Specially colored offset for the record just entered
+        markers.append({
+            'latitude': off_lat,
+            'longitude': off_lon,
+            'color': 'green',
+            'label': f'[OFFSET - Just Entered] {username} - {address}',
+            'type': 'offset_latest'
+        })
+      else:
+        # Standard offset marker in blue for all other historical records
+        markers.append({
+            'latitude': off_lat,
+            'longitude': off_lon,
+            'color': 'blue',
+            'label': f'[OFFSET] {username} - {address}',
+            'type': 'offset_standard'
+        })
+
+  return markers

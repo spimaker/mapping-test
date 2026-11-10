@@ -11,6 +11,13 @@ class MapEntry(MapEntryTemplate):
   def __init__(self, **properties):
     self.init_components(**properties)
 
+    self.last_saved_record_id = None
+
+    # Wire up the toggle switch event if present
+    if hasattr(self, 'Show_Actuals_Checkbox'):
+      self.Show_Actuals_Checkbox.checked = True
+      self.Show_Actuals_Checkbox.set_event_handler('change', self.refresh_map_display)
+
     # Event guard flags to prevent loop/double-triggers during programmatic updates
     self._loading_subdivisions = False
     self._loading_cities = False
@@ -193,87 +200,119 @@ class MapEntry(MapEntryTemplate):
     if hasattr(self, 'Custom_City_Label'):
       self.Custom_City_Label.visible = is_custom
 
-  def save_button_click(self, **event_args):
-      """Gathers form inputs, validates presence of required fields, and invokes server save."""
-    
-      fields_to_check = {
-          'User_Name_Value': getattr(self, 'User_Name_Value', None),
-          'Country_CodeB_Value': getattr(self, 'Country_CodeB_Value', None),
-          'State_Province_Region_Value': getattr(self, 'State_Province_Region_Value', None),
-          'City_Value': getattr(self, 'City_Value', None),
-          'Postal_Code_Value': getattr(self, 'Postal_Code_Value', None),
-          'Address1_Value': getattr(self, 'Address1_Value', None),
-      }
+  def refresh_map_display(self, **event_args):
+    """Reloads map markers reflecting the current actuals visibility switch and active record."""
+    show_actuals = (
+        self.Show_Actuals_Checkbox.checked
+        if hasattr(self, 'Show_Actuals_Checkbox')
+        else True
+    )
 
-      is_custom = (
-          hasattr(self, 'City_Value')
-          and self.City_Value.selected_value == 'OTHER_CUSTOM_CITY'
+    try:
+      markers = anvil.server.call(
+          'get_map_markers_with_privacy_view',
+          active_record_id=self.last_saved_record_id,
+          show_actuals=show_actuals,
       )
-    
-      if is_custom:
-        city_value = (
-            self.Custom_City_TextBox.text.strip()
-            if hasattr(self, 'Custom_City_TextBox')
-            else ''
-        )
+
+      if hasattr(self, 'map_component'):
+        self.map_component.clear()
+        for m in markers:
+          # Render markers on your map component based on m['color'] ('red', 'green', or 'blue')
+          pass
+    except Exception as e:
+      print(f'Error refreshing map markers: {e}')
+
+  def save_button_click(self, **event_args):
+    """Gathers form inputs, validates presence of required fields, and invokes server save."""
+
+    fields_to_check = {
+        'User_Name_Value': getattr(self, 'User_Name_Value', None),
+        'Country_Code_Value': getattr(self, 'Country_Code_Value', None),
+        'State_Province_Region_Value': getattr(
+            self, 'State_Province_Region_Value', None
+        ),
+        'City_Value': getattr(self, 'City_Value', None),
+        'Postal_Code_Value': getattr(self, 'Postal_Code_Value', None),
+        'Address1_Value': getattr(self, 'Address1_Value', None),
+    }
+
+    is_custom = (
+        hasattr(self, 'City_Value')
+        and self.City_Value.selected_value == 'OTHER_CUSTOM_CITY'
+    )
+
+    if is_custom:
+      city_value = (
+          self.Custom_City_TextBox.text.strip()
+          if hasattr(self, 'Custom_City_TextBox')
+          else ''
+      )
+    else:
+      city_value = (
+          self.City_Value.selected_value if hasattr(self, 'City_Value') else ''
+      )
+
+    missing_fields = []
+
+    for name, comp in fields_to_check.items():
+      if comp is None:
+        continue
+
+      val = None
+      if hasattr(comp, 'text'):
+        val = comp.text
+      elif hasattr(comp, 'selected_value'):
+        val = comp.selected_value
+
+      is_empty = False
+      if val is None:
+        is_empty = True
+      elif isinstance(val, str) and not val.strip():
+        is_empty = True
+      elif name == 'City_Value' and is_custom and not city_value:
+        is_empty = True
+
+      # Native Anvil background property highlighting
+      if is_empty:
+        missing_fields.append(name)
+        comp.background = '#fce8e6'  # Soft error red background
       else:
-        city_value = (
-            self.City_Value.selected_value if hasattr(self, 'City_Value') else ''
+        comp.background = ''  # Clears highlight when filled
+
+    if missing_fields:
+      alert('Some required fields are missing data', title='Missing Information')
+      return
+
+    form_data = {
+        'User_Name_Value': self.User_Name_Value.text.strip(),
+        'Country_Code_Value': self.Country_Code_Value.selected_value,
+        'State_Province_Region_Value': self.State_Province_Region_Value.selected_value,
+        'City_Value': city_value,
+        'Postal_Code_Value': self.Postal_Code_Value.text.strip(),
+        'Address1_Value': self.Address1_Value.text.strip(),
+        'Address2_Value': (
+            self.Address2_Value.text.strip()
+            if hasattr(self, 'Address2_Value')
+            else ''
+        ),
+        'Country_Code_Value': self.Country_Code_Value.selected_value,
+        'Is_Custom_City': is_custom,
+    }
+
+    try:
+      result = anvil.server.call('save_map_item', form_data)
+
+      if result.get('status') == 'error':
+        alert(result.get('message', 'An error occurred while saving.'))
+      elif result.get('status') == 'duplicate':
+        alert(
+            'This record already exists in the database.',
+            title='Duplicate Record',
         )
-
-      missing_fields = []
-    
-      for name, comp in fields_to_check.items():
-        if comp is None:
-          continue
-        
-        val = None
-        if hasattr(comp, 'text'):
-          val = comp.text
-        elif hasattr(comp, 'selected_value'):
-          val = comp.selected_value
-
-        is_empty = False
-        if val is None:
-          is_empty = True
-        elif isinstance(val, str) and not val.strip():
-          is_empty = True
-        elif name == 'City_Value' and is_custom and not city_value:
-          is_empty = True
-
-        # Native Anvil background property highlighting
-        if is_empty:
-          missing_fields.append(name)
-          comp.background = '#fce8e6'  # Soft error red background
-        else:
-          comp.background = ''        # Clears highlight when filled
-
-      if missing_fields:
-        alert('Some required fields are missing data', title='Missing Information')
-        return
-
-      form_data = {
-          'User_Name_Value': self.User_Name_Value.text.strip(),
-          'Country_CodeB_Value': self.Country_CodeB_Value.selected_value,
-          'State_Province_Region_Value': self.State_Province_Region_Value.selected_value,
-          'City_Value': city_value,
-          'Postal_Code_Value': self.Postal_Code_Value.text.strip(),
-          'Address1_Value': self.Address1_Value.text.strip(),
-          'Address2_Value': self.Address2_Value.text.strip() if hasattr(self, 'Address2_Value') else '',
-          'Country_Code_Value': self.Country_CodeB_Value.selected_value,
-          'Is_Custom_City': is_custom,
-      }
-
-      try:
-        result = anvil.server.call('save_map_item', form_data)
-
-        if result.get('status') == 'error':
-          alert(result.get('message', 'An error occurred while saving.'))
-        elif result.get('status') == 'duplicate':
-          alert(
-              'This record already exists in the database.', title='Duplicate Record'
-          )
-        elif result.get('status') == 'saved':
-          alert('Map item saved successfully!', title='Success')
-      except Exception as e:
-        alert(f'Save failed: {e}', title='System Error')
+      elif result.get('status') == 'saved':
+        self.last_saved_record_id = result.get('id')
+        alert('Map item saved successfully!', title='Success')
+        self.refresh_map_display()
+    except Exception as e:
+      alert(f'Save failed: {e}', title='System Error')
