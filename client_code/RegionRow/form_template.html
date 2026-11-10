@@ -1,9 +1,11 @@
-<anvil-form container="DataRowPanel" prop:visible="true">
-  <anvil-component type="Link" name="link_1" bind:text="self.item['display_name']" container:row_key="column_1"></anvil-component>
-  <anvil-component type="Label" name="label_1" bind:text="self.item['metrics'][0]" container:row_key="column_2"></anvil-component>
-  <anvil-component type="Label" name="label_2" bind:text="self.item['metrics'][1]" container:row_key="column_3"></anvil-component>
-  <anvil-component type="Label" name="label_3" bind:text="self.item['metrics'][2]" container:row_key="column_4"></anvil-component>
-  <anvil-component type="Label" name="label_4" bind:text="self.item['metrics'][3]" container:row_key="column_5"></anvil-component>
-  <anvil-component type="Label" name="label_5" bind:text="self.item['metrics'][4]" container:row_key="column_6"></anvil-component>
-  <anvil-component type="Label" name="label_6" bind:text="self.item['metrics'][5]" container:row_key="column_7"></anvil-component>
+<anvil-form container="ColumnPanel">
+  <anvil-component type="ColumnPanel" name="column_panel_1" container:grid_position="BYHJOJ,QFCIVA" container:full_width_row="true">
+    <anvil-component type="Link" name="link_1" bind:text="self.item['link_1']" container:grid_position="DUYFTB,OWRELP"></anvil-component>
+    <anvil-component type="Label" name="label_1" container:grid_position="DUYFTB,LHORJF"></anvil-component>
+    <anvil-component type="Label" name="label_2" container:grid_position="DUYFTB,ZYLBOO"></anvil-component>
+    <anvil-component type="Label" name="label_3" container:grid_position="DUYFTB,CAEPZX"></anvil-component>
+    <anvil-component type="Label" name="label_4" container:grid_position="DUYFTB,NJFDRO"></anvil-component>
+    <anvil-component type="Label" name="label_5" container:grid_position="DUYFTB,GKQFQM"></anvil-component>
+    <anvil-component type="Label" name="label_6" container:grid_position="DUYFTB,UXNXBU"></anvil-component>
+  </anvil-component>
 </anvil-form>
