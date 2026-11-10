@@ -1,4 +1,4 @@
-from ._anvil_designer import Form1Template
+from ._anvil_designer import MapEntryTemplate
 import math
 import base64
 import anvil
@@ -10,8 +10,7 @@ import anvil.tables.query as q
 from anvil import GoogleMap
 import anvil.js
 
-class Form1(Form1Template):
-
+class MapEntry(MapEntryTemplate):
   def __init__(self, **properties):
     super().__init__(**properties)
     self.is_fullscreen = False
