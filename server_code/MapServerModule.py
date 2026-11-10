@@ -150,16 +150,6 @@ def get_cities_for_state(country_code, state_name):
     print(f'Error loading cities from country-state-city: {e}')
     return []
 
-    cities = City.get_cities_of_state(country_code, target_state_code)
-    if not cities:
-      return []
-
-    city_names = sorted([c.get('name') for c in cities if c.get('name')])
-    return [(name, name) for name in city_names]
-  except Exception as e:
-    print(f'Error loading cities from country-state-city: {e}')
-    return []
-
 
 def calculate_distance_miles(lat1, lon1, lat2, lon2):
   if None in (lat1, lon1, lat2, lon2):
@@ -375,6 +365,7 @@ def save_map_item(form_data):
       latitude=lat,
       longitude=lon,
       formatted_address=formatted_address,
+      date_time=datetime.utcnow(),  # Added timestamp saving
   )
 
   all_items = app_tables.mapitems.search()
@@ -414,7 +405,8 @@ def geocode_multiple_addresses(
     if country_code:
       params['countrycodes'] = country_code.lower()
 
-    response = requests.get(url, params=params, headers=headers, timeout=5)
+    # Increased timeout to 12 seconds to handle public server latency
+    response = requests.get(url, params=params, headers=headers, timeout=12)
     data = response.json()
 
     if not data and (city or state_str or postal or addr1):
@@ -431,7 +423,7 @@ def geocode_multiple_addresses(
         fallback_params['countrycodes'] = country_code.lower()
 
       response = requests.get(
-          url, params=fallback_params, headers=headers, timeout=5
+          url, params=fallback_params, headers=headers, timeout=12
       )
       data = response.json()
 
@@ -458,6 +450,9 @@ def geocode_multiple_addresses(
       })
 
     return results
+  except requests.exceptions.Timeout:
+    print('Geocoding error: Nominatim request timed out.')
+    return []
   except Exception as e:
     print(f'Geocoding error: {e}')
     return []

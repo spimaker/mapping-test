@@ -6,11 +6,13 @@
         <anvil-component type="Label" name="User_Name_Label" prop:text="User Name" prop:align="right" container:row="HIEZTO" container:width_xs="4" container:col_xs="0"></anvil-component>
         <anvil-component type="TextBox" name="User_Name_Value" container:row="HIEZTO" container:width_xs="5" container:col_xs="4"></anvil-component>
         <anvil-component type="Label" name="Country_Code_Label" prop:text="Country Code" prop:align="right" container:row="LYAQAI" container:width_xs="4" container:col_xs="0"></anvil-component>
-        <anvil-component type="DropDown" name="Country_Code_Value" prop:align="left" on:change="self.country_code_dropdown_change" container:row="LYAQAI" container:width_xs="7" container:col_xs="4"></anvil-component>
+        <anvil-component type="DropDown" name="Country_Code_Value" prop:align="left" on:change="self.country_dropdown_change" container:row="LYAQAI" container:width_xs="7" container:col_xs="4"></anvil-component>
         <anvil-component type="Label" name="State_Province_Region_Label" prop:text="State / Province / Region" prop:align="right" container:row="MHVOXZ" container:width_xs="4" container:col_xs="0"></anvil-component>
-        <anvil-component type="DropDown" name="State_Province_Region_Value" container:row="MHVOXZ" container:width_xs="7" container:col_xs="4"></anvil-component>
+        <anvil-component type="DropDown" name="State_Province_Region_Value" on:change="self.state_dropdown_change" container:row="MHVOXZ" container:width_xs="7" container:col_xs="4"></anvil-component>
         <anvil-component type="Label" name="City_Label" prop:text="City" prop:align="right" container:row="OCPXFO" container:width_xs="4" container:col_xs="0"></anvil-component>
-        <anvil-component type="DropDown" name="City_Value" container:row="OCPXFO" container:width_xs="7" container:col_xs="4"></anvil-component>
+        <anvil-component type="DropDown" name="City_Value" on:change="self.city_dropdown_change" container:row="OCPXFO" container:width_xs="7" container:col_xs="4"></anvil-component>
+        <anvil-component type="Label" name="Custom_City_Label" prop:align="right" prop:text="Manually Entered City" container:row="AXQCVS" container:width_xs="4" container:col_xs="0"></anvil-component>
+        <anvil-component type="TextBox" name="Custom_City_TextBox" container:row="AXQCVS" container:width_xs="7" container:col_xs="4"></anvil-component>
         <anvil-component type="Label" name="Postal_Code_Label" prop:text="Postal Code" prop:align="right" container:row="SOBVRV" container:width_xs="4" container:col_xs="0"></anvil-component>
         <anvil-component type="TextBox" name="Postal_Code_Value" container:row="SOBVRV" container:width_xs="5" container:col_xs="4"></anvil-component>
         <anvil-component type="Label" name="Address1_Label" prop:text="Address 1" prop:align="right" container:row="VKOCPF" container:width_xs="4" container:col_xs="0"></anvil-component>
@@ -24,7 +26,7 @@
         <anvil-component type="TextBox" name="Longitude_Value" prop:type="number" prop:visible="false" container:row="EJMGVS" container:width_xs="5" container:col_xs="4"></anvil-component>
         <anvil-component type="Label" name="Formatter_Address_Label" prop:text="Formatted Address" prop:align="right" prop:visible="false" container:row="JNQNKV" container:width_xs="4" container:col_xs="0"></anvil-component>
         <anvil-component type="TextBox" name="Formatted_Address_Value" prop:visible="false" container:row="JNQNKV" container:width_xs="5" container:col_xs="4"></anvil-component>
-        <anvil-component type="Button" name="Save_Button" prop:text="Save &amp; Map" container:row="PILLBE" container:width_xs="3" container:col_xs="0"></anvil-component>
+        <anvil-component type="Button" name="Save_Button" prop:text="Save &amp; Map" on:click="self.save_button_click" container:row="PILLBE" container:width_xs="3" container:col_xs="0"></anvil-component>
         <anvil-component type="Button" name="Search_Button" prop:text="Search" container:row="PILLBE" container:width_xs="4" container:col_xs="3"></anvil-component>
         <anvil-component type="Button" name="Clear_Button" prop:text="Clear Fields" container:row="PILLBE" container:width_xs="4" container:col_xs="8"></anvil-component>
       </anvil-component>
