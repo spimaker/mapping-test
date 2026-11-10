@@ -1,3 +1,4 @@
 pycountry==26.2.16
 geopy
 pycountry-convert==0.7.2
+country-state-city==0.1.0
