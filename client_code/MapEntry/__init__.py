@@ -5,45 +5,34 @@ from anvil import alert
 
 class MapEntry(MapEntryTemplate):
   def __init__(self, **properties):
-    # Set Form properties and Data Bindings
     self.init_components(**properties)
     self.last_saved_record_id = None
-
-    # special data conversion functions  (run once and then comment out)
-    #result = anvil.server.call('delete_all_map_data')
-    #print(result)
     
-    # Load initial country options on startup
     try:
       self.Country_Code_Value.items = anvil.server.call('get_country_list')
     except Exception as e:
       print(f"Error loading initial country list: {e}")
       
-    # Initial map marker population
     self.refresh_map_display()
 
   def clear_button_click(self, **event_args):
-      """Clears all input fields and resets dropdown selections."""
-      self.User_Name_Value.text = ""
-    
-      self.Country_Code_Value.selected_value = None
-      self.State_Province_Region_Value.selected_value = None
-      self.City_Value.selected_value = None
-      self.City_Value.items = [("<Select City>", None)]
-    
-      # Hide custom city inputs on clear
-      self.Custom_City_Label.visible = False
-      self.Custom_City_TextBox.visible = False
-      self.Custom_City_TextBox.text = ""
-    
-      self.Postal_Code_Value.text = ""
-      self.Address1_Value.text = ""
-      self.Address2_Value.text = ""
-      self.Latitude_Value.text = ""
-      self.Longitude_Value.text = ""
-      self.Formatted_Address_Value.text = ""
+    self.User_Name_Value.text = ""
+    self.Country_Code_Value.selected_value = None
+    self.State_Province_Region_Value.selected_value = None
+    self.City_Value.selected_value = None
+    self.City_Value.items = [("<Select City>", None)]
+  
+    self.Custom_City_Label.visible = False
+    self.Custom_City_TextBox.visible = False
+    self.Custom_City_TextBox.text = ""
+  
+    self.Postal_Code_Value.text = ""
+    self.Address1_Value.text = ""
+    self.Address2_Value.text = ""
+    self.Latitude_Value.text = ""
+    self.Longitude_Value.text = ""
+    self.Formatted_Address_Value.text = ""
 
-    
   def save_button_click(self, **event_args):
       try:
         selected_city = self.City_Value.selected_value
@@ -56,7 +45,7 @@ class MapEntry(MapEntryTemplate):
         record_data = {
             'user_name': self.User_Name_Value.text,
             'country_code': self.Country_Code_Value.selected_value,
-            'state': self.State_Province_Region_Value.selected_value,  # Updated to match your component name
+            'state': self.State_Province_Region_Value.selected_value,
             'city': final_city,
             'postal_code': self.Postal_Code_Value.text,
             'address_1': self.Address1_Value.text,
@@ -67,45 +56,38 @@ class MapEntry(MapEntryTemplate):
         }
       
         saved_id = anvil.server.call('save_map_item', record_data)
-      
         if saved_id:
           alert("MapItems record saved successfully!")
-        
+          self.refresh_map_display(active_record_id=saved_id)
       except Exception as e:
         alert(f'Error saving record: {e}')
 
   def search_button_click(self, **event_args):
-    """Handles address lookup / geocoding search logic."""
     try:
       address_query = {
-          'address1': self.Address1_Value.text,
-          'address2': self.Address2_Value.text,
+          'address_1': self.Address1_Value.text,
+          'address_2': self.Address2_Value.text,
           'city': self.City_Value.selected_value or self.Custom_City_TextBox.text,
           'state': self.State_Province_Region_Value.selected_value,
           'country': self.Country_Code_Value.selected_value,
           'postal_code': self.Postal_Code_Value.text
       }
-      
       result = anvil.server.call('geocode_address', address_query)
       if result:
         self.Latitude_Value.text = str(result.get('latitude', ''))
         self.Longitude_Value.text = str(result.get('longitude', ''))
         self.Formatted_Address_Value.text = result.get('formatted_address', '')
     except Exception as e:
-      print(f'Error during search/geocoding: {e}')
+      print(f'Error during search: {e}')
 
   def full_screen_map_button_click(self, **event_args):
-    """Opens the full screen map view form."""
     try:
       anvil.open_form('FullScreenMapForm')
     except Exception as e:
       print(f'Error opening full screen map: {e}')
 
   def country_dropdown_change(self, **event_args):
-    """Cascades country selection to update states/regions."""
     selected_country = self.Country_Code_Value.selected_value
-    
-    # Reset dependent dropdowns
     self.State_Province_Region_Value.items = []
     self.State_Province_Region_Value.selected_value = None
     self.City_Value.items = []
@@ -120,11 +102,8 @@ class MapEntry(MapEntryTemplate):
         print(f"Error loading states: {e}")
 
   def state_dropdown_change(self, **event_args):
-      """Cascades state selection to update cities by passing both country and state codes."""
       selected_country = self.Country_Code_Value.selected_value
       selected_state = self.State_Province_Region_Value.selected_value
-    
-      # Reset city dropdown with the default prompt so it doesn't show <invalid value>
       self.City_Value.items = [("<Select City>", None)]
       self.City_Value.selected_value = None
     
@@ -136,11 +115,8 @@ class MapEntry(MapEntryTemplate):
         except Exception as e:
           print(f"Error loading cities: {e}")
 
-          
   def city_dropdown_change(self, **event_args):
-      """Triggered when the city dropdown selection changes. Toggles custom city fields."""
       selected_city = self.City_Value.selected_value
-    
       if selected_city == "MANUAL_ENTRY":
         self.Custom_City_Label.visible = True
         self.Custom_City_TextBox.visible = True
@@ -150,26 +126,77 @@ class MapEntry(MapEntryTemplate):
         self.Custom_City_TextBox.visible = False
         self.Custom_City_TextBox.text = ""
 
-        
-  def refresh_map_display(self, active_record_id=None):
-      # 1. Clear existing markers from self.map_1
+  def refresh_map_display(self, cluster_type=None, distance_value=None, active_record_id=None):
       self.map_1.clear()
+      
+      cluster_type = cluster_type or 'region'
+      print(f"CLIENT DEBUG -> Sending cluster_type='{cluster_type}', distance_value={distance_value}")
+
+      markers = anvil.server.call(
+          'get_clustered_map_markers', 
+          cluster_type=cluster_type, 
+          distance_value=distance_value, 
+          active_record_id=active_record_id
+      )
     
-      # 2. Fetch marker details from the server module
-      markers = anvil.server.call('get_map_markers_with_privacy_view', active_record_id=active_record_id)
-    
-      # 3. Instantiate and add Marker components to self.map_1
       for m in markers:
         lat_lng = self.map_1.LatLng(m['lat'], m['lon'])
+        title = m.get('title', 'Cluster')
+        users = m.get('users', [m.get('user_name', 'Unknown User')])
+      
         marker = self.map_1.Marker(
             position=lat_lng,
-            title=m.get('title', ''),
+            title=title,
             animation=self.map_1.Animation.DROP
         )
+      
+        def make_click_handler(cluster_title, user_list):
+          def marker_click_handler(sender, **event_args):
+            page_size = 25
+            current_page = 0
+            total_users = len(user_list)
+            total_pages = max(1, (total_users + page_size - 1) // page_size)
+            
+            while True:
+              start_idx = current_page * page_size
+              end_idx = min(start_idx + page_size, total_users)
+              page_users = user_list[start_idx:end_idx]
+              
+              formatted_users = "\n".join([f"• {u}" for u in page_users])
+              page_info = f"Page {current_page + 1} of {total_pages} (Showing {start_idx + 1}-{end_idx} of {total_users})"
+              
+              content = f"{cluster_title}\n\n{page_info}\n\n{formatted_users}"
+              
+              buttons = []
+              if current_page > 0:
+                buttons.append(("Previous", "prev"))
+              if current_page < total_pages - 1:
+                buttons.append(("Next", "next"))
+              buttons.append(("Close", None))
+              
+              action = alert(content=content, title="Cluster Users", large=True, buttons=buttons)
+              
+              if action == "next":
+                current_page += 1
+              elif action == "prev":
+                current_page -= 1
+              else:
+                break
+          return marker_click_handler
+        
+        marker.set_event_handler('click', make_click_handler(title, users))
         self.map_1.add_component(marker)
       
-      # 4. Center map on the latest marker
       if markers:
-        latest = markers[-1]
+        latest = markers[0]
         self.map_1.center = self.map_1.LatLng(latest['lat'], latest['lon'])
-        self.map_1.zoom = 10
+        self.map_1.zoom = 4
+
+  def cluster_dropdown_change(self, sender, **event_args):
+    """Triggered when the user changes the cluster type dropdown."""
+    val = sender.selected_value
+    self.refresh_map_display(cluster_type=val)
+
+  def threshold_dropdown_change(self, sender, **event_args):
+    """Triggered when the user adjusts the radius threshold dropdown."""
+    self.refresh_map_display(distance_value=sender.selected_value)
