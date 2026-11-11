@@ -14,7 +14,6 @@ geolocator = Nominatim(user_agent="NaturistMappingProject")
 
 @anvil.server.callable
 def get_map_markers_with_privacy_view(active_record_id=None, show_actuals=True):
-    """Fetches markers: shows red actual + green offset ONLY for the just-entered record."""
     all_items = list(app_tables.mapitems.search())
     markers = []
 
@@ -31,28 +30,25 @@ def get_map_markers_with_privacy_view(active_record_id=None, show_actuals=True):
         if act_lat is not None and act_lon is not None:
             if is_latest and show_actuals:
                 markers.append({
-                    'latitude': act_lat,
-                    'longitude': act_lon,
+                    'lat': float(act_lat),  # Ensure 'lat' instead of 'latitude' for Anvil Map
+                    'lon': float(act_lon),  # Ensure 'lon' instead of 'longitude' for Anvil Map
                     'color': 'red',
-                    'user_name': username,
-                    'type': 'actual'
+                    'title': username
                 })
 
             if is_latest:
                 markers.append({
-                    'latitude': off_lat,
-                    'longitude': off_lon,
+                    'lat': float(off_lat),
+                    'lon': float(off_lon),
                     'color': 'green',
-                    'user_name': username,
-                    'type': 'offset_latest'
+                    'title': username
                 })
             else:
                 markers.append({
-                    'latitude': off_lat,
-                    'longitude': off_lon,
+                    'lat': float(off_lat),
+                    'lon': float(off_lon),
                     'color': 'blue',
-                    'user_name': username,
-                    'type': 'offset_standard'
+                    'title': username
                 })
 
     return markers

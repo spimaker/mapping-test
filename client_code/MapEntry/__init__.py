@@ -2,6 +2,7 @@ from ._anvil_designer import MapEntryTemplate
 import anvil.server
 from anvil import alert
 
+
 class MapEntry(MapEntryTemplate):
   def __init__(self, **properties):
     # Set Form properties and Data Bindings
@@ -150,39 +151,25 @@ class MapEntry(MapEntryTemplate):
         self.Custom_City_TextBox.text = ""
 
         
-  def refresh_map_display(self, **event_args):
-    """Reloads map markers reflecting current visibility and active record, showing usernames."""
-    show_actuals = (
-        self.Show_Actuals_Checkbox.checked
-        if hasattr(self, 'Show_Actuals_Checkbox')
-        else True
-    )
-
-    try:
-      markers = anvil.server.call(
-          'get_map_markers_with_privacy_view',
-          active_record_id=getattr(self, 'last_saved_record_id', None),
-          show_actuals=show_actuals,
-      )
-
-      if hasattr(self, 'map_1'):
-        self.map_1.clear()
-        
-        for m in markers:
-          lat_lng = anvil.GoogleMap.LatLng(m['latitude'], m['longitude'])
-          marker = anvil.GoogleMap.Marker(
-              position=lat_lng,
-              title=m['user_name']  # Displays only the user's name on the marker
-          )
-        
-          if m['color'] == 'red':
-            marker.icon = anvil.GoogleMap.Icon(url="http://maps.google.com/mapfiles/ms/icons/red-dot.png")
-          elif m['color'] == 'green':
-            marker.icon = anvil.GoogleMap.Icon(url="http://maps.google.com/mapfiles/ms/icons/green-dot.png")
-          else:
-            marker.icon = anvil.GoogleMap.Icon(url="http://maps.google.com/mapfiles/ms/icons/blue-dot.png")
-
-          self.map_1.add_component(marker)
-
-    except Exception as e:
-      print(f'Error refreshing map markers: {e}')
+  def refresh_map_display(self, active_record_id=None):
+      # 1. Clear existing markers from self.map_1
+      self.map_1.clear()
+    
+      # 2. Fetch marker details from the server module
+      markers = anvil.server.call('get_map_markers_with_privacy_view', active_record_id=active_record_id)
+    
+      # 3. Instantiate and add Marker components to self.map_1
+      for m in markers:
+        lat_lng = self.map_1.LatLng(m['lat'], m['lon'])
+        marker = self.map_1.Marker(
+            position=lat_lng,
+            title=m.get('title', ''),
+            animation=self.map_1.Animation.DROP
+        )
+        self.map_1.add_component(marker)
+      
+      # 4. Center map on the latest marker
+      if markers:
+        latest = markers[-1]
+        self.map_1.center = self.map_1.LatLng(latest['lat'], latest['lon'])
+        self.map_1.zoom = 10
