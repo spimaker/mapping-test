@@ -1,207 +1,145 @@
-from anvil import alert
-import anvil.server
-import anvil.tables as tables
-import anvil.tables.query as q
-from anvil.tables import app_tables
 from ._anvil_designer import MapEntryTemplate
-
+import anvil.server
 
 class MapEntry(MapEntryTemplate):
-
   def __init__(self, **properties):
+    # Set Form properties and Data Bindings
     self.init_components(**properties)
-
     self.last_saved_record_id = None
-
-    # Wire up the toggle switch event if present
-    if hasattr(self, 'Show_Actuals_Checkbox'):
-      self.Show_Actuals_Checkbox.checked = True
-      self.Show_Actuals_Checkbox.set_event_handler('change', self.refresh_map_display)
-
-    # Event guard flags to prevent loop/double-triggers during programmatic updates
-    self._loading_subdivisions = False
-    self._loading_cities = False
-
-    self._setup_dropdowns()
-
-    # Wire up change events explicitly if not bound in the Anvil visual designer
-    if hasattr(self, 'Country_Code_Value'):
-      self.Country_Code_Value.set_event_handler(
-          'change', self.country_dropdown_change
-      )
-    if hasattr(self, 'State_Province_Region_Value'):
-      self.State_Province_Region_Value.set_event_handler(
-          'change', self.state_dropdown_change
-      )
-    if hasattr(self, 'City_Value'):
-      self.City_Value.set_event_handler('change', self.city_dropdown_change)
-
-    # Ensure custom city input and label are hidden on initial load
-    if hasattr(self, 'Custom_City_TextBox'):
-      self.Custom_City_TextBox.visible = False
-    if hasattr(self, 'Custom_City_Label'):
-      self.Custom_City_Label.visible = False
-
-  def _setup_dropdowns(self):
-    """Populates initial country options and resets state/city dropdowns."""
+    
+    # Load initial country options on startup
     try:
-      country_items = anvil.server.call('get_country_list')
-      if hasattr(self, 'Country_Code_Value'):
-        self.Country_Code_Value.items = [
-            ('-- Select Country --', None)
-        ] + country_items
-        self.Country_Code_Value.selected_value = None
+      self.Country_Code_Value.items = anvil.server.call('get_country_list')
     except Exception as e:
-      print(f'Error loading country list: {e}')
+      print(f"Error loading initial country list: {e}")
+      
+    # Initial map marker population
+    self.refresh_map_display()
 
-    if hasattr(self, 'Cluster_Type_Dropdown'):
-      self.Cluster_Type_Dropdown.items = [
-          ('Global Region', 'global_region'),
-          ('Country', 'country'),
-          ('State / Province', 'state'),
-          ('City', 'city'),
-          ('Postal Code', 'postal'),
-          ('Miles Radius', 'miles'),
-          ('Kilometers Radius', 'kilometers'),
-      ]
-
-    if hasattr(self, 'State_Province_Region_Value'):
-      self.State_Province_Region_Value.items = [
-          ('-- Select State / Province --', None)
-      ]
+  def clear_button_click(self, **event_args):
+      """Clears all input fields and resets dropdown selections."""
+      self.User_Name_Value.text = ""
+    
+      self.Country_Code_Value.selected_value = None
       self.State_Province_Region_Value.selected_value = None
-
-    if hasattr(self, 'City_Value'):
-      self.City_Value.items = [('-- Select City --', None)]
       self.City_Value.selected_value = None
+      self.City_Value.items = [("<Select City>", None)]
+    
+      # Hide custom city inputs on clear
+      self.Custom_City_Label.visible = False
+      self.Custom_City_TextBox.visible = False
+      self.Custom_City_TextBox.text = ""
+    
+      self.Postal_Code_Value.text = ""
+      self.Address1_Value.text = ""
+      self.Address2_Value.text = ""
+      self.Latitude_Value.text = ""
+      self.Longitude_Value.text = ""
+      self.Formatted_Address_Value.text = ""
+  def save_button_click(self, **event_args):
+    """Saves the record to the database and updates the map display."""
+    try:
+      record_data = {
+          'user_name': self.User_Name_Value.text,
+          'country_code': self.Country_Code_Value.selected_value,
+          'state_province_region': self.State_Province_Region_Value.selected_value,
+          'city': self.City_Value.selected_value,
+          'custom_city': self.Custom_City_TextBox.text,
+          'postal_code': self.Postal_Code_Value.text,
+          'address1': self.Address1_Value.text,
+          'address2': self.Address2_Value.text,
+          'latitude': float(self.Latitude_Value.text) if self.Latitude_Value.text else None,
+          'longitude': float(self.Longitude_Value.text) if self.Longitude_Value.text else None,
+          'formatted_address': self.Formatted_Address_Value.text,
+      }
+      
+      # Call server function to save and return the new record ID
+      self.last_saved_record_id = anvil.server.call('save_map_item', record_data)
+      
+      # Refresh map to highlight the newly saved record
+      self.refresh_map_display()
+    except Exception as e:
+      print(f'Error saving record: {e}')
+
+  def search_button_click(self, **event_args):
+    """Handles address lookup / geocoding search logic."""
+    try:
+      address_query = {
+          'address1': self.Address1_Value.text,
+          'address2': self.Address2_Value.text,
+          'city': self.City_Value.selected_value or self.Custom_City_TextBox.text,
+          'state': self.State_Province_Region_Value.selected_value,
+          'country': self.Country_Code_Value.selected_value,
+          'postal_code': self.Postal_Code_Value.text
+      }
+      
+      result = anvil.server.call('geocode_address', address_query)
+      if result:
+        self.Latitude_Value.text = str(result.get('latitude', ''))
+        self.Longitude_Value.text = str(result.get('longitude', ''))
+        self.Formatted_Address_Value.text = result.get('formatted_address', '')
+    except Exception as e:
+      print(f'Error during search/geocoding: {e}')
+
+  def full_screen_map_button_click(self, **event_args):
+    """Opens the full screen map view form."""
+    try:
+      anvil.open_form('FullScreenMapForm')
+    except Exception as e:
+      print(f'Error opening full screen map: {e}')
 
   def country_dropdown_change(self, **event_args):
-    """Triggered when user selects a country; populates state/province subdivisions."""
-    if not hasattr(self, 'Country_Code_Value'):
-      return
-
+    """Cascades country selection to update states/regions."""
     selected_country = self.Country_Code_Value.selected_value
-
-    # Reset downstream custom city fields
-    if hasattr(self, 'Custom_City_TextBox'):
-      self.Custom_City_TextBox.visible = False
-      self.Custom_City_TextBox.text = ''
-    if hasattr(self, 'Custom_City_Label'):
-      self.Custom_City_Label.visible = False
-
-    # Reset city dropdown safely
-    if hasattr(self, 'City_Value'):
-      self._loading_cities = True
-      self.City_Value.items = [('-- Select City --', None)]
-      self.City_Value.selected_value = None
-      self._loading_cities = False
-
-    if not selected_country:
-      if hasattr(self, 'State_Province_Region_Value'):
-        self._loading_subdivisions = True
-        self.State_Province_Region_Value.items = [
-            ('-- Select State / Province --', None)
-        ]
-        self.State_Province_Region_Value.selected_value = None
-        self._loading_subdivisions = False
-      return
-
-    try:
-      subdivisions = anvil.server.call(
-          'get_subdivisions_for_country', selected_country
-      )
-      if hasattr(self, 'State_Province_Region_Value'):
-        self._loading_subdivisions = True
-        self.State_Province_Region_Value.items = [
-            ('-- Select State / Province --', None)
-        ] + subdivisions
-        self.State_Province_Region_Value.selected_value = None
-        self._loading_subdivisions = False
-    except Exception as e:
-      print(f'Error fetching subdivisions: {e}')
-      if hasattr(self, 'State_Province_Region_Value'):
-        self._loading_subdivisions = True
-        self.State_Province_Region_Value.items = [
-            ('-- Select State / Province --', None)
-        ]
-        self.State_Province_Region_Value.selected_value = None
-        self._loading_subdivisions = False
+    
+    # Reset dependent dropdowns
+    self.State_Province_Region_Value.items = []
+    self.State_Province_Region_Value.selected_value = None
+    self.City_Value.items = []
+    self.City_Value.selected_value = None
+    
+    if selected_country:
+      try:
+        self.State_Province_Region_Value.items = anvil.server.call(
+            'get_states_for_country', selected_country
+        )
+      except Exception as e:
+        print(f"Error loading states: {e}")
 
   def state_dropdown_change(self, **event_args):
-    """Triggered when user selects a state; populates cities without UI state focus loss."""
-    if getattr(self, '_loading_subdivisions', False):
-      return
+      """Cascades state selection to update cities by passing both country and state codes."""
+      selected_country = self.Country_Code_Value.selected_value
+      selected_state = self.State_Province_Region_Value.selected_value
+    
+      # Reset city dropdown with the default prompt so it doesn't show <invalid value>
+      self.City_Value.items = [("<Select City>", None)]
+      self.City_Value.selected_value = None
+    
+      if selected_country and selected_state:
+        try:
+          self.City_Value.items = anvil.server.call(
+              'get_cities_for_state', selected_country, selected_state
+          )
+        except Exception as e:
+          print(f"Error loading cities: {e}")
 
-    if not hasattr(self, 'Country_Code_Value') or not hasattr(
-        self, 'State_Province_Region_Value'
-    ):
-      return
-
-    selected_country = self.Country_Code_Value.selected_value
-    selected_state = self.State_Province_Region_Value.selected_value
-
-    # Hide custom city fields when state changes
-    if hasattr(self, 'Custom_City_TextBox'):
-      self.Custom_City_TextBox.visible = False
-      self.Custom_City_TextBox.text = ''
-    if hasattr(self, 'Custom_City_Label'):
-      self.Custom_City_Label.visible = False
-
-    if not selected_state or not selected_country:
-      if hasattr(self, 'City_Value'):
-        self._loading_cities = True
-        self.City_Value.items = [('-- Select City --', None)]
-        self.City_Value.selected_value = None
-        self._loading_cities = False
-      return
-
-    try:
-      cities = anvil.server.call(
-          'get_cities_for_state', selected_country, selected_state
-      )
-      if hasattr(self, 'City_Value'):
-        self._loading_cities = True
-        self.City_Value.items = (
-            [('-- Select City --', None)]
-            + cities
-            + [('Other (Enter manually)...', 'OTHER_CUSTOM_CITY')]
-        )
-        self.City_Value.selected_value = None
-        self._loading_cities = False
-    except Exception as e:
-      print(f'Error fetching cities: {e}')
-      if hasattr(self, 'City_Value'):
-        self._loading_cities = True
-        self.City_Value.items = [
-            ('-- Select City --', None),
-            ('Other (Enter manually)...', 'OTHER_CUSTOM_CITY'),
-        ]
-        self.City_Value.selected_value = None
-        self._loading_cities = False
-
+          
   def city_dropdown_change(self, **event_args):
-    """Triggered when user selects a city; toggles manual entry components for 'Other'."""
-    if getattr(self, '_loading_cities', False):
-      return
-
-    if not hasattr(self, 'City_Value'):
-      return
-
-    is_custom = self.City_Value.selected_value == 'OTHER_CUSTOM_CITY'
-
-    if hasattr(self, 'Custom_City_TextBox'):
-      self.Custom_City_TextBox.visible = is_custom
-      if is_custom:
-        self.Custom_City_TextBox.text = ''
+      """Triggered when the city dropdown selection changes. Toggles custom city fields."""
+      selected_city = self.City_Value.selected_value
+    
+      if selected_city == "MANUAL_ENTRY":
+        self.Custom_City_Label.visible = True
+        self.Custom_City_TextBox.visible = True
         self.Custom_City_TextBox.focus()
       else:
-        self.Custom_City_TextBox.text = ''
+        self.Custom_City_Label.visible = False
+        self.Custom_City_TextBox.visible = False
+        self.Custom_City_TextBox.text = ""
 
-    if hasattr(self, 'Custom_City_Label'):
-      self.Custom_City_Label.visible = is_custom
-
+        
   def refresh_map_display(self, **event_args):
-    """Reloads map markers reflecting the current actuals visibility switch and active record."""
+    """Reloads map markers reflecting current visibility and active record, showing usernames."""
     show_actuals = (
         self.Show_Actuals_Checkbox.checked
         if hasattr(self, 'Show_Actuals_Checkbox')
@@ -211,108 +149,28 @@ class MapEntry(MapEntryTemplate):
     try:
       markers = anvil.server.call(
           'get_map_markers_with_privacy_view',
-          active_record_id=self.last_saved_record_id,
+          active_record_id=getattr(self, 'last_saved_record_id', None),
           show_actuals=show_actuals,
       )
 
-      if hasattr(self, 'map_component'):
-        self.map_component.clear()
+      if hasattr(self, 'map_1'):
+        self.map_1.clear()
+        
         for m in markers:
-          # Render markers on your map component based on m['color'] ('red', 'green', or 'blue')
-          pass
+          lat_lng = anvil.GoogleMap.LatLng(m['latitude'], m['longitude'])
+          marker = anvil.GoogleMap.Marker(
+              position=lat_lng,
+              title=m['user_name']  # Displays only the user's name on the marker
+          )
+        
+          if m['color'] == 'red':
+            marker.icon = anvil.GoogleMap.Icon(url="http://maps.google.com/mapfiles/ms/icons/red-dot.png")
+          elif m['color'] == 'green':
+            marker.icon = anvil.GoogleMap.Icon(url="http://maps.google.com/mapfiles/ms/icons/green-dot.png")
+          else:
+            marker.icon = anvil.GoogleMap.Icon(url="http://maps.google.com/mapfiles/ms/icons/blue-dot.png")
+
+          self.map_1.add_component(marker)
+
     except Exception as e:
       print(f'Error refreshing map markers: {e}')
-
-  def save_button_click(self, **event_args):
-    """Gathers form inputs, validates presence of required fields, and invokes server save."""
-
-    fields_to_check = {
-        'User_Name_Value': getattr(self, 'User_Name_Value', None),
-        'Country_Code_Value': getattr(self, 'Country_Code_Value', None),
-        'State_Province_Region_Value': getattr(
-            self, 'State_Province_Region_Value', None
-        ),
-        'City_Value': getattr(self, 'City_Value', None),
-        'Postal_Code_Value': getattr(self, 'Postal_Code_Value', None),
-        'Address1_Value': getattr(self, 'Address1_Value', None),
-    }
-
-    is_custom = (
-        hasattr(self, 'City_Value')
-        and self.City_Value.selected_value == 'OTHER_CUSTOM_CITY'
-    )
-
-    if is_custom:
-      city_value = (
-          self.Custom_City_TextBox.text.strip()
-          if hasattr(self, 'Custom_City_TextBox')
-          else ''
-      )
-    else:
-      city_value = (
-          self.City_Value.selected_value if hasattr(self, 'City_Value') else ''
-      )
-
-    missing_fields = []
-
-    for name, comp in fields_to_check.items():
-      if comp is None:
-        continue
-
-      val = None
-      if hasattr(comp, 'text'):
-        val = comp.text
-      elif hasattr(comp, 'selected_value'):
-        val = comp.selected_value
-
-      is_empty = False
-      if val is None:
-        is_empty = True
-      elif isinstance(val, str) and not val.strip():
-        is_empty = True
-      elif name == 'City_Value' and is_custom and not city_value:
-        is_empty = True
-
-      # Native Anvil background property highlighting
-      if is_empty:
-        missing_fields.append(name)
-        comp.background = '#fce8e6'  # Soft error red background
-      else:
-        comp.background = ''  # Clears highlight when filled
-
-    if missing_fields:
-      alert('Some required fields are missing data', title='Missing Information')
-      return
-
-    form_data = {
-        'User_Name_Value': self.User_Name_Value.text.strip(),
-        'Country_Code_Value': self.Country_Code_Value.selected_value,
-        'State_Province_Region_Value': self.State_Province_Region_Value.selected_value,
-        'City_Value': city_value,
-        'Postal_Code_Value': self.Postal_Code_Value.text.strip(),
-        'Address1_Value': self.Address1_Value.text.strip(),
-        'Address2_Value': (
-            self.Address2_Value.text.strip()
-            if hasattr(self, 'Address2_Value')
-            else ''
-        ),
-        'Country_Code_Value': self.Country_Code_Value.selected_value,
-        'Is_Custom_City': is_custom,
-    }
-
-    try:
-      result = anvil.server.call('save_map_item', form_data)
-
-      if result.get('status') == 'error':
-        alert(result.get('message', 'An error occurred while saving.'))
-      elif result.get('status') == 'duplicate':
-        alert(
-            'This record already exists in the database.',
-            title='Duplicate Record',
-        )
-      elif result.get('status') == 'saved':
-        self.last_saved_record_id = result.get('id')
-        alert('Map item saved successfully!', title='Success')
-        self.refresh_map_display()
-    except Exception as e:
-      alert(f'Save failed: {e}', title='System Error')

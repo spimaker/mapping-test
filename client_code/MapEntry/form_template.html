@@ -28,7 +28,7 @@
         <anvil-component type="TextBox" name="Formatted_Address_Value" prop:visible="false" container:row="JNQNKV" container:width_xs="5" container:col_xs="4"></anvil-component>
         <anvil-component type="Button" name="Save_Button" prop:text="Save &amp; Map" on:click="self.save_button_click" container:row="PILLBE" container:width_xs="3" container:col_xs="0"></anvil-component>
         <anvil-component type="Button" name="Search_Button" prop:text="Search" container:row="PILLBE" container:width_xs="4" container:col_xs="3"></anvil-component>
-        <anvil-component type="Button" name="Clear_Button" prop:text="Clear Fields" container:row="PILLBE" container:width_xs="4" container:col_xs="8"></anvil-component>
+        <anvil-component type="Button" name="Clear_Button" prop:text="Clear Fields" on:click="self.clear_button_click" container:row="PILLBE" container:width_xs="4" container:col_xs="8"></anvil-component>
       </anvil-component>
       <anvil-component type="GridPanel" name="grid_panel_2" container:grid_position="VXRTWK,FTNTVD">
         <anvil-component type="Label" name="Cluster_Type_Label" prop:text="Cluster Type
