@@ -77,10 +77,10 @@ def get_clustered_map_markers(cluster_type='region', distance_value=None, distan
     all_items = list(app_tables.mapitems.search())
     cluster_type = (cluster_type or 'region').lower()
     
-    print(f"DEBUG CLUSTER TYPE RECEIVED: '{cluster_type}' | Total Rows: {len(all_items)}")
+    print(f"DEBUG CLUSTER TYPE RECEIVED: '{cluster_type}' | Distance Value: {distance_value} | Total Rows: {len(all_items)}")
 
-    # --- 1. Administrative Grouping (Country, State, City, Region) ---
-    if cluster_type in ['country', 'state', 'city', 'region']:
+    # --- 1. Administrative Grouping (Country, State, City, Region, Postal Code) ---
+    if cluster_type in ['country', 'state', 'city', 'region', 'postal code']:
         groups = {}
         
         for row in all_items:
@@ -118,6 +118,9 @@ def get_clustered_map_markers(cluster_type='region', distance_value=None, distan
                 state_val = (row.get('state') or '').strip()
                 country_val = (row.get('country_code') or '').strip().upper()
                 key_val = f"{city_val}, {state_val}, {country_val}" if city_val else 'Unassigned City'
+            elif cluster_type == 'postal code':
+                postal_val = (row.get('postal_code') or '').strip()
+                key_val = postal_val if postal_val else 'Unassigned Postal Code'
             else:
                 key_val = 'Unassigned'
 
@@ -131,8 +134,6 @@ def get_clustered_map_markers(cluster_type='region', distance_value=None, distan
                 groups[key_val]['users'].append(username)
                 
         markers = []
-        print(f"DEBUG: Total Unique Groups Formed for '{cluster_type}': {list(groups.keys())}")
-
         for name, data in groups.items():
             if data['lats'] and data['lons']:
                 avg_lat = sum(data['lats']) / len(data['lats'])
@@ -146,7 +147,6 @@ def get_clustered_map_markers(cluster_type='region', distance_value=None, distan
                     'title': f"{str(name).title()} ({len(user_list)} users)",
                     'users': user_list
                 })
-        print(f"DEBUG: Returning {len(markers)} markers.")
         return markers
 
     # --- 2. Radial Distance Grouping (Miles or Kilometers) ---
@@ -206,8 +206,7 @@ def get_clustered_map_markers(cluster_type='region', distance_value=None, distan
 
     else:
         return get_map_markers_with_privacy_view(active_record_id=active_record_id)
-
-
+      
 @anvil.server.callable
 def save_map_item(record_data):
     country = record_data.get('country_code')

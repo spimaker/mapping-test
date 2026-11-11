@@ -7,6 +7,10 @@ class MapEntry(MapEntryTemplate):
   def __init__(self, **properties):
     self.init_components(**properties)
     self.last_saved_record_id = None
+
+    # Hide radius controls by default on startup
+    self.Threshold_Label.visible = False
+    self.Threshold_Dropdown.visible = False
     
     try:
       self.Country_Code_Value.items = anvil.server.call('get_country_list')
@@ -193,10 +197,23 @@ class MapEntry(MapEntryTemplate):
         self.map_1.zoom = 4
 
   def cluster_dropdown_change(self, sender, **event_args):
-    """Triggered when the user changes the cluster type dropdown."""
-    val = sender.selected_value
-    self.refresh_map_display(cluster_type=val)
+      """Triggered when the user changes the cluster type dropdown."""
+      val = sender.selected_value
+      is_radial = val and val.lower() in ['miles', 'kilometers', 'mi', 'km']
+    
+      # Toggle visibility based on whether radial clustering is selected
+      self.Threshold_Label.visible = is_radial
+      self.Threshold_Dropdown.visible = is_radial
+    
+      distance_val = None
+      if is_radial:
+        # Shift focus to the radius dropdown when it appears
+        self.Threshold_Dropdown.focus()
+        distance_val = self.Threshold_Dropdown.selected_value
+      
+      self.refresh_map_display(cluster_type=val, distance_value=distance_val)
 
   def threshold_dropdown_change(self, sender, **event_args):
     """Triggered when the user adjusts the radius threshold dropdown."""
-    self.refresh_map_display(distance_value=sender.selected_value)
+    cluster_type_val = self.Cluster_Type_Dropdown.selected_value
+    self.refresh_map_display(cluster_type=cluster_type_val, distance_value=sender.selected_value)
