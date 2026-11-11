@@ -3,10 +3,6 @@ db_schema:
   manualcity:
     client: none
     columns:
-    - admin_ui: {order: 0, width: 200}
-      client_hidden: false
-      name: id
-      type: number
     - admin_ui: {order: 1, width: 200}
       client_hidden: false
       name: country_code
@@ -31,6 +27,10 @@ db_schema:
       client_hidden: false
       name: date_time
       type: datetime
+    - admin_ui: {order: 0, width: 200}
+      client_hidden: true
+      name: id
+      type: string
     indexes: []
     server: full
     title: ManualCity

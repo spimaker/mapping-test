@@ -1,11 +1,16 @@
 from ._anvil_designer import MapEntryTemplate
 import anvil.server
+from anvil import alert
 
 class MapEntry(MapEntryTemplate):
   def __init__(self, **properties):
     # Set Form properties and Data Bindings
     self.init_components(**properties)
     self.last_saved_record_id = None
+
+    # special data conversion functions  (run once and then comment out)
+    #result = anvil.server.call('delete_all_map_data')
+    #print(result)
     
     # Load initial country options on startup
     try:
@@ -36,30 +41,37 @@ class MapEntry(MapEntryTemplate):
       self.Latitude_Value.text = ""
       self.Longitude_Value.text = ""
       self.Formatted_Address_Value.text = ""
+
+    
   def save_button_click(self, **event_args):
-    """Saves the record to the database and updates the map display."""
-    try:
-      record_data = {
-          'user_name': self.User_Name_Value.text,
-          'country_code': self.Country_Code_Value.selected_value,
-          'state_province_region': self.State_Province_Region_Value.selected_value,
-          'city': self.City_Value.selected_value,
-          'custom_city': self.Custom_City_TextBox.text,
-          'postal_code': self.Postal_Code_Value.text,
-          'address1': self.Address1_Value.text,
-          'address2': self.Address2_Value.text,
-          'latitude': float(self.Latitude_Value.text) if self.Latitude_Value.text else None,
-          'longitude': float(self.Longitude_Value.text) if self.Longitude_Value.text else None,
-          'formatted_address': self.Formatted_Address_Value.text,
-      }
+      try:
+        selected_city = self.City_Value.selected_value
+        final_city = (
+            self.Custom_City_TextBox.text 
+            if selected_city == "MANUAL_ENTRY" 
+            else selected_city
+        )
+
+        record_data = {
+            'user_name': self.User_Name_Value.text,
+            'country_code': self.Country_Code_Value.selected_value,
+            'state': self.State_Province_Region_Value.selected_value,  # Updated to match your component name
+            'city': final_city,
+            'postal_code': self.Postal_Code_Value.text,
+            'address_1': self.Address1_Value.text,
+            'address_2': self.Address2_Value.text,
+            'latitude': float(self.Latitude_Value.text) if self.Latitude_Value.text else None,
+            'longitude': float(self.Longitude_Value.text) if self.Longitude_Value.text else None,
+            'formatted_address': self.Formatted_Address_Value.text,
+        }
       
-      # Call server function to save and return the new record ID
-      self.last_saved_record_id = anvil.server.call('save_map_item', record_data)
+        saved_id = anvil.server.call('save_map_item', record_data)
       
-      # Refresh map to highlight the newly saved record
-      self.refresh_map_display()
-    except Exception as e:
-      print(f'Error saving record: {e}')
+        if saved_id:
+          alert("MapItems record saved successfully!")
+        
+      except Exception as e:
+        alert(f'Error saving record: {e}')
 
   def search_button_click(self, **event_args):
     """Handles address lookup / geocoding search logic."""

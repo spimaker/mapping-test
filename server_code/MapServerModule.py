@@ -1,74 +1,139 @@
+import datetime
+import uuid
 import anvil.server
 import anvil.tables as tables
 from anvil.tables import app_tables
 import pycountry
 from pycountry_convert import country_alpha2_to_continent_code
 from country_state_city import Country, State, City
+from geopy.geocoders import Nominatim
+
+# Initialize Nominatim geolocator with a unique user agent
+geolocator = Nominatim(user_agent="NaturistMappingProject")
+
 
 @anvil.server.callable
 def get_map_markers_with_privacy_view(active_record_id=None, show_actuals=True):
-    """Fetches markers: shows red actual + green offset ONLY for the just-entered record.
-        All other records show standard blue offset markers, with labels showing only usernames."""
+    """Fetches markers: shows red actual + green offset ONLY for the just-entered record."""
     all_items = list(app_tables.mapitems.search())
     markers = []
 
     for row in all_items:
-      record_id = row.get('id')
-      act_lat = row.get('latitude')
-      act_lon = row.get('longitude')
-      off_lat = row.get('offset_latitude') or act_lat
-      off_lon = row.get('offset_longitude') or act_lon
-      username = row.get('user_name', 'Unknown User')
+        record_id = row.get('id')
+        act_lat = row.get('latitude')
+        act_lon = row.get('longitude')
+        off_lat = row.get('offset_latitude') or act_lat
+        off_lon = row.get('offset_longitude') or act_lon
+        username = row.get('user_name', 'Unknown User')
 
-      is_latest = (record_id == active_record_id)
+        is_latest = (record_id == active_record_id)
 
-      if act_lat is not None and act_lon is not None:
-        if is_latest and show_actuals:
-          markers.append({
-              'latitude': act_lat,
-              'longitude': act_lon,
-              'color': 'red',
-              'user_name': username,
-              'type': 'actual'
-          })
+        if act_lat is not None and act_lon is not None:
+            if is_latest and show_actuals:
+                markers.append({
+                    'latitude': act_lat,
+                    'longitude': act_lon,
+                    'color': 'red',
+                    'user_name': username,
+                    'type': 'actual'
+                })
 
-        if is_latest:
-          markers.append({
-              'latitude': off_lat,
-              'longitude': off_lon,
-              'color': 'green',
-              'user_name': username,
-              'type': 'offset_latest'
-          })
-        else:
-          markers.append({
-              'latitude': off_lat,
-              'longitude': off_lon,
-              'color': 'blue',
-              'user_name': username,
-              'type': 'offset_standard'
-          })
+            if is_latest:
+                markers.append({
+                    'latitude': off_lat,
+                    'longitude': off_lon,
+                    'color': 'green',
+                    'user_name': username,
+                    'type': 'offset_latest'
+                })
+            else:
+                markers.append({
+                    'latitude': off_lat,
+                    'longitude': off_lon,
+                    'color': 'blue',
+                    'user_name': username,
+                    'type': 'offset_standard'
+                })
 
     return markers
 
 
 @anvil.server.callable
 def save_map_item(record_data):
-    """Saves a new map entry record to the mapitems table and returns its unique ID."""
+    """Geocodes the address, saves to mapitems and manualcity with explicit IDs, and logs to console."""
+    country = record_data.get('country_code')
+    state = record_data.get('state')
+    city = record_data.get('city')
+    address_1 = record_data.get('address_1')
+    address_2 = record_data.get('address_2')
+    postal_code = record_data.get('postal_code')
+    user_name = record_data.get('user_name')
+
+    # Construct address query string for geocoding validation
+    query_parts = [address_1, address_2, city, state, country, postal_code]
+    query_string = ", ".join([str(p) for p in query_parts if p])
+
+    lat = record_data.get('latitude')
+    lon = record_data.get('longitude')
+    formatted_address = record_data.get('formatted_address', '')
+
+    try:
+        if query_string.strip():
+            location = geolocator.geocode(query_string)
+            if location:
+                lat = location.latitude
+                lon = location.longitude
+                formatted_address = location.address
+    except Exception as e:
+        print(f"Geopy geocoding validation error before saving: {e}")
+
+    current_time = datetime.datetime.now()
+    generated_id = str(uuid.uuid4())
+
+    # 1. Save to main map items table with an explicit unique record ID
     new_row = app_tables.mapitems.add_row(
-        user_name=record_data.get('user_name'),
-        country_code=record_data.get('country_code'),
-        state_province_region=record_data.get('state_province_region'),
-        city=record_data.get('city'),
-        custom_city=record_data.get('custom_city'),
-        postal_code=record_data.get('postal_code'),
-        address1=record_data.get('address1'),
-        address2=record_data.get('address2'),
-        latitude=record_data.get('latitude'),
-        longitude=record_data.get('longitude'),
-        formatted_address=record_data.get('formatted_address')
+        id=generated_id,
+        user_name=user_name,
+        country_code=country,
+        state=state,
+        city=city,
+        postal_code=postal_code,
+        address_1=address_1,
+        address_2=address_2,
+        latitude=lat,
+        longitude=lon,
+        formatted_address=formatted_address,
+        date_time=current_time
     )
-    return new_row.get_id() if hasattr(new_row, 'get_id') else new_row
+    
+    print(f"MapItems record successfully saved with ID: {generated_id}")
+    
+    # 2. Store newly entered manual cities in ManualCity table with an explicit unique ID
+    if country and state and city and city != "MANUAL_ENTRY":
+        existing_manual = app_tables.manualcity.get(
+            country_code=country, 
+            state=state, 
+            city=city
+        )
+        if not existing_manual:
+            try:
+                city_row_id = str(uuid.uuid4())
+                app_tables.manualcity.add_row(
+                    id=city_row_id,
+                    country_code=country,
+                    state=state,
+                    city=city,
+                    latitude=lat,
+                    longitude=lon,
+                    date_time=current_time
+                )
+                print(f"Console Message: Successfully saved new manual city '{city}' to ManualCity with ID: {city_row_id}")
+            except Exception as e:
+                print(f"Error saving new manual city: {e}")
+        else:
+            print(f"Manual city '{city}' already exists in ManualCity table.")
+
+    return generated_id
 
 
 @anvil.server.callable
@@ -177,14 +242,36 @@ def get_cities_for_state(country_code, state_code):
     except Exception as e:
         print(f"Error fetching manual cities: {e}")
         
-    # Append the manual entry trigger option at the very end
     city_list.append(("Enter City Manually", "MANUAL_ENTRY"))
     
     return city_list
 
+
 @anvil.server.callable
 def geocode_address(address_query):
-    """Stub or implementation for geocoding address inputs."""
+    """On-demand geocoding preview using geopy/Nominatim."""
+    parts = [
+        address_query.get('address_1'),
+        address_query.get('address_2'),
+        address_query.get('city'),
+        address_query.get('state'),
+        address_query.get('country'),
+        address_query.get('postal_code')
+    ]
+    query_string = ", ".join([str(p) for p in parts if p])
+    
+    try:
+        if query_string.strip():
+            location = geolocator.geocode(query_string)
+            if location:
+                return {
+                    'latitude': location.latitude,
+                    'longitude': location.longitude,
+                    'formatted_address': location.address
+                }
+    except Exception as e:
+        print(f"Geocoding preview error: {e}")
+        
     return {
         'latitude': None,
         'longitude': None,
