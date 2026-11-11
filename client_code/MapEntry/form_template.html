@@ -8,7 +8,7 @@
         <anvil-component type="Label" name="Country_Code_Label" prop:text="* Country Code" prop:align="right" container:row="LYAQAI" container:width_xs="4" container:col_xs="0"></anvil-component>
         <anvil-component type="DropDown" name="Country_Code_Value" prop:align="left" on:change="self.country_dropdown_change" container:row="LYAQAI" container:width_xs="7" container:col_xs="4"></anvil-component>
         <anvil-component type="Label" name="State_Province_Region_Label" prop:text="* State / Province / Region" prop:align="right" container:row="MHVOXZ" container:width_xs="4" container:col_xs="0"></anvil-component>
-        <anvil-component type="DropDown" name="State_Province_Region_Value" on:change="self.state_dropdown_change" container:row="MHVOXZ" container:width_xs="7" container:col_xs="4"></anvil-component>
+        <anvil-component type="DropDown" name="State_Province_Region_Value" on:change="self.state_dropdown_change" bind:border container:row="MHVOXZ" container:width_xs="7" container:col_xs="4"></anvil-component>
         <anvil-component type="Label" name="City_Label" prop:text="* City" prop:align="right" container:row="OCPXFO" container:width_xs="4" container:col_xs="0"></anvil-component>
         <anvil-component type="DropDown" name="City_Value" on:change="self.city_dropdown_change" container:row="OCPXFO" container:width_xs="7" container:col_xs="4"></anvil-component>
         <anvil-component type="Label" name="Custom_City_Label" prop:align="right" prop:text="Manually Entered City" container:row="AXQCVS" container:width_xs="4" container:col_xs="0"></anvil-component>
@@ -33,10 +33,13 @@
       <anvil-component type="GridPanel" name="grid_panel_2" container:grid_position="VXRTWK,FTNTVD">
         <anvil-component type="Label" name="Cluster_Type_Label" prop:text="Cluster Type
 " prop:align="right" container:row="LWTTVO" container:width_xs="3" container:col_xs="0"></anvil-component>
-        <anvil-component type="DropDown" name="Cluster_Type_Dropdown" prop:items='["Miles","Kilometers","Postal Code","City","State","Country","Region"]' on:change="self.cluster_dropdown_change" container:row="LWTTVO" container:width_xs="4" container:col_xs="3"></anvil-component>
-        <anvil-component type="Label" name="Threshold_Label" prop:text="Radius Size" prop:align="right" container:row="LWTTVO" container:width_xs="3" container:col_xs="7"></anvil-component>
+        <anvil-component type="DropDown" name="Cluster_Type_Dropdown" prop:items='["Miles","Kilometers","Postal Code","City","State","Country","Region"]' on:change="self.cluster_dropdown_change" container:row="LWTTVO" container:width_xs="3" container:col_xs="3"></anvil-component>
+        <anvil-component type="Link" name="Info_Link" prop:text="Help" on:click="self.Info_Link_click" container:row="LWTTVO" container:width_xs="1" container:col_xs="6"></anvil-component>
+        <anvil-component type="Label" name="Threshold_Label" prop:text="Radius Size" prop:align="right" container:row="LWTTVO" container:width_xs="2" container:col_xs="7"></anvil-component>
         <anvil-component type="DropDown" name="Threshold_Dropdown" prop:items='["1","5","10","25","50","100"]' on:change="self.threshold_dropdown_change" container:row="LWTTVO" container:width_xs="2" container:col_xs="9"></anvil-component>
       </anvil-component>
+      <anvil-component type="Label" name="label_2" prop:align="center" prop:bold="true" prop:text="Legend" container:grid_position="WQDRVW,MKSORP"></anvil-component>
+      <anvil-component type="RepeatingPanel" name="repeating_panel_1" prop:item_template="Mapping_Test.LegendRowTemplate" container:grid_position="YPSTZZ,OXOPMU"></anvil-component>
       <anvil-component type="GridPanel" name="grid_panel_3" container:grid_position="FKZHYJ,ICNDKH">
         <anvil-component type="Button" name="Load_Clusters_Button" prop:text="Load Clusters" prop:visible="false" container:row="ILGUOZ" container:width_xs="5" container:col_xs="0"></anvil-component>
         <anvil-component type="Button" name="fullscreen_button" prop:text="Full Screen Map" container:row="ILGUOZ" container:width_xs="5" container:col_xs="7"></anvil-component>
