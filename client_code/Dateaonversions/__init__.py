@@ -38,3 +38,12 @@ class Dateaonversions(DateaonversionsTemplate):
     )
   
     alert(f"Harvest started for Country: {target_code}, State: {state_code or 'All'}!")
+
+  @handle("SQL_Query", "click")
+  def SQL_Query_click(self, **event_args):
+      """This method is called when the button is clicked"""
+      # Call the server function securely
+      count = anvil.server.call('get_postal_code_count')
+    
+      # Example: Display the result in a Label on your form
+      self.SQL_Reply.text = f"Total postal codes: {count}"

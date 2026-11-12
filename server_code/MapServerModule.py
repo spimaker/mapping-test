@@ -376,3 +376,6 @@ def geocode_address(address_query):
     except Exception as e:
         pass
     return {'latitude': None, 'longitude': None, 'formatted_address': ''}
+
+
+
