@@ -8,13 +8,16 @@ class MapEntry(MapEntryTemplate):
       self.init_components(**properties)
       self.last_saved_record_id = None
 
+      # Toggle between MapItems_Test (True) and MapItems (False)
+      self.use_test_table = True
+
       # set border on Info_Link
       self.Info_Link.role = 'input-border'
 
       # Hide radius controls by default on startup
       self.Threshold_Label.visible = False
       self.Threshold_Dropdown.visible = False
-    
+     
       try:
         self.Country_Code_Value.items = anvil.server.call('get_country_list')
       except Exception as e:
@@ -74,10 +77,15 @@ class MapEntry(MapEntryTemplate):
             'longitude': float(self.Longitude_Value.text) if self.Longitude_Value.text else None,
             'formatted_address': self.Formatted_Address_Value.text,
         }
-      
-        saved_id = anvil.server.call('save_map_item', record_data)
+
+        saved_id = anvil.server.call(
+            'save_map_item', 
+            record_data, 
+            use_test_table=self.use_test_table
+        )
         if saved_id:
-          alert("MapItems record saved successfully!")
+          table_label = "MapItems_Test" if self.use_test_table else "MapItems"
+          alert(f"Record saved successfully to {table_label}!")
           self.refresh_map_display(active_record_id=saved_id)
       except Exception as e:
         alert(f'Error saving record: {e}')
@@ -150,13 +158,13 @@ class MapEntry(MapEntryTemplate):
         self.map_1.clear()
       
         cluster_type = cluster_type or 'region'
-        #print(f"CLIENT DEBUG -> Sending cluster_type='{cluster_type}', distance_value={distance_value}")
 
         markers = anvil.server.call(
             'get_clustered_map_markers', 
             cluster_type=cluster_type, 
             distance_value=distance_value, 
-            active_record_id=active_record_id
+            active_record_id=active_record_id,
+            use_test_table=self.use_test_table
         )
     
         for m in markers:
