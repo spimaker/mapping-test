@@ -13,9 +13,23 @@ from geopy.geocoders import Nominatim
 geolocator = Nominatim(user_agent="NaturistMappingProject")
 
 
-def get_target_table(use_test_table=False):
-    """Helper to return the correct table based on the toggle flag."""
-    return app_tables.mapitems_test if use_test_table else app_tables.mapitems
+def get_region_from_country_code(country_code):
+    """Maps a country code to a global region using pycountry_convert."""
+    if not country_code:
+        return "Other"
+    try:
+        continent_code = country_alpha2_to_continent_code(country_code.strip().upper())
+        continent_map = {
+            "NA": "North America",
+            "SA": "South America",
+            "EU": "Europe",
+            "AS": "Asia",
+            "AF": "Africa",
+            "OC": "Oceania"
+        }
+        return continent_map.get(continent_code, "Other")
+    except Exception:
+        return "Other"
 
 
 def calculate_haversine_distance_km(lat1, lon1, lat2, lon2):
@@ -63,10 +77,9 @@ def get_marker_scale(count):
 
 
 @anvil.server.callable
-def get_map_markers_with_privacy_view(active_record_id=None, show_actuals=True, use_test_table=False):
+def get_map_markers_with_privacy_view(active_record_id=None, show_actuals=True):
     """Fetches markers: shows red actual + green offset ONLY for the just-entered record."""
-    target_table = get_target_table(use_test_table)
-    all_items = list(target_table.search())
+    all_items = list(app_tables.mapitems.search())
     markers = []
 
     for row in all_items:
@@ -113,10 +126,9 @@ def get_map_markers_with_privacy_view(active_record_id=None, show_actuals=True, 
 
 
 @anvil.server.callable
-def get_clustered_map_markers(cluster_type='region', distance_value=None, distance_unit='miles', active_record_id=None, use_test_table=False):
+def get_clustered_map_markers(cluster_type='region', distance_value=None, distance_unit='miles', active_record_id=None):
     """Aggregates map records based on administrative boundaries, radial distance, or individual view."""
-    target_table = get_target_table(use_test_table)
-    all_items = list(target_table.search())
+    all_items = list(app_tables.mapitems.search())
     cluster_type = (cluster_type or 'region').lower()
 
     # --- 1. Administrative Grouping (Country, State, City, Region, Postal Code) ---
@@ -134,18 +146,11 @@ def get_clustered_map_markers(cluster_type='region', distance_value=None, distan
             lat, lon = float(lat), float(lon)
 
             if cluster_type == 'region':
-                c_code = row.get('country_code')
-                key_val = 'Unassigned Region'
-                if c_code:
-                    try:
-                        continent_code = country_alpha2_to_continent_code(c_code)
-                        continent_map = {
-                            "NA": "North America", "SA": "South America", 
-                            "EU": "Europe", "AS": "Asia", "AF": "Africa", "OC": "Oceania"
-                        }
-                        key_val = continent_map.get(continent_code, "Other")
-                    except Exception:
-                        key_val = "Other"
+                # Use stored region column if available, otherwise compute dynamically
+                key_val = row.get('region')
+                if not key_val:
+                    c_code = row.get('country_code')
+                    key_val = get_region_from_country_code(c_code)
             elif cluster_type == 'country':
                 key_val = (row.get('country_code') or 'Unassigned Country').strip().upper()
             elif cluster_type == 'state':
@@ -248,13 +253,11 @@ def get_clustered_map_markers(cluster_type='region', distance_value=None, distan
         return markers
 
     else:
-        return get_map_markers_with_privacy_view(active_record_id=active_record_id, use_test_table=use_test_table)
+        return get_map_markers_with_privacy_view(active_record_id=active_record_id)
 
 
 @anvil.server.callable
-def save_map_item(record_data, use_test_table=False):
-    target_table = get_target_table(use_test_table)
-    
+def save_map_item(record_data):
     country = record_data.get('country_code')
     state = record_data.get('state')
     city = record_data.get('city')
@@ -262,6 +265,9 @@ def save_map_item(record_data, use_test_table=False):
     address_2 = record_data.get('address_2')
     postal_code = record_data.get('postal_code')
     user_name = record_data.get('user_name')
+
+    # Determine region dynamically from country code using pycountry_convert
+    region = get_region_from_country_code(country)
 
     query_parts = [address_1, address_2, city, state, country, postal_code]
     query_string = ", ".join([str(p) for p in query_parts if p])
@@ -283,9 +289,10 @@ def save_map_item(record_data, use_test_table=False):
     current_time = datetime.datetime.now()
     generated_id = str(uuid.uuid4())
 
-    target_table.add_row(
+    app_tables.mapitems.add_row(
         id=generated_id,
         user_name=user_name,
+        region=region,
         country_code=country,
         state=state,
         city=city,

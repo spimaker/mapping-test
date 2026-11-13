@@ -2,10 +2,63 @@ import random
 import time
 from datetime import datetime, timedelta
 import requests
+import pycountry
+import pycountry_convert as pc
 import anvil.server
 import anvil.tables as tables
 import anvil.tables.query as q
 from anvil.tables import app_tables
+
+
+def get_global_region(country_code_or_name):
+  """Maps a country code or name to a global macro-region using pycountry_convert."""
+  try:
+    val = str(country_code_or_name).strip()
+    alpha2 = None
+    
+    # Resolve input to an ISO Alpha-2 code
+    if len(val) == 2:
+      alpha2 = val.upper()
+    elif len(val) == 3:
+      c_obj = pycountry.countries.get(alpha_3=val.upper())
+      if c_obj:
+        alpha2 = c_obj.alpha_2
+    else:
+      c_obj = pycountry.countries.get(name=val)
+      if not c_obj:
+        results = pycountry.countries.search_fuzzy(val)
+        if results:
+          c_obj = results[0]
+      if c_obj:
+        alpha2 = c_obj.alpha_2
+
+    if not alpha2:
+      return "Other"
+
+    # Get continent code (e.g., 'NA', 'EU', 'AS', etc.)
+    continent_code = pc.country_alpha2_to_continent_code(alpha2)
+    
+    # Map continent codes to your 7 macro-regions
+    continent_mapping = {
+        "NA": "North America",
+        "SA": "Latin America & Caribbean",
+        "EU": "Europe",
+        "AS": "Asia-Pacific", # (Or split further if needed, but covers Asian nations cleanly)
+        "AF": "Sub-Saharan Africa / MENA", # Refined below if North African
+        "OC": "Asia-Pacific"
+    }
+    
+    region = continent_mapping.get(continent_code, "Other")
+    
+    # Fine-tune Middle East & North Africa (MENA) vs Sub-Saharan Africa based on standard groupings
+    mena_alpha2 = {"AE", "SA", "EG", "TR", "IR", "IQ", "QA", "KW", "OM", "JO", "LB", "MA", "DZ", "TN", "BH", "YE", "LY", "SY"}
+    if alpha2 in mena_alpha2:
+      return "Middle East & North Africa"
+      
+    return region
+
+  except Exception:
+    return "Other"
 
 
 @anvil.server.background_task
@@ -19,12 +72,10 @@ def get_test_addresses(start_country=None, start_state=None, start_pcode=None):
   rows = app_tables.datahub_postal_codes.search()
   
   processed_count = 0
-  # Determine if we need to skip records until we find the resume point
   resuming = bool(start_country and start_pcode)
   if resuming:
     print(f"Resumption requested starting at: Country={start_country}, State={start_state}, Postal Code={start_pcode}")
 
-  # Helper to generate a simple numeric ID based on epoch milliseconds
   def generate_numeric_id():
     return int(time.time() * 1000) + random.randint(1, 999)
 
@@ -36,19 +87,20 @@ def get_test_addresses(start_country=None, start_state=None, start_pcode=None):
     if not country or not pcode:
       continue
 
-    # Skip rows until we find the resume point if resumption is active
     if resuming:
       match_state = True if not start_state else (state == start_state)
       if country == start_country and match_state and pcode == start_pcode:
         resuming = False
         print(f"Found resume point! Continuing harvest from {country} {state} {pcode}...")
       else:
-        continue  # Skip this row
+        continue
 
-    print(f"\n--- Examining Postal Code: {pcode} ({country}, {state}) ---")
+    # Determine global region dynamically using pycountry_convert
+    region_name = get_global_region(country)
+
+    print(f"\n--- Examining Postal Code: {pcode} ({country}, {state}) [{region_name}] ---")
     current_timestamp = datetime.now()
     
-    # Step 1: Get bounding box from Nominatim
     bbox_found = False
     bbox_str = ""
     try:
@@ -158,7 +210,6 @@ def get_test_addresses(start_country=None, start_state=None, start_pcode=None):
         time.sleep(10)
         continue
 
-      # Calculate quota: greater of 10% of addresses found or 150, unless fewer than 150 exist (save all)
       if total_found <= 150:
         sample_size = total_found
       else:
@@ -168,7 +219,6 @@ def get_test_addresses(start_country=None, start_state=None, start_pcode=None):
       sampled_addresses = random.sample(valid_elements, sample_size)
       print(f"Saving {sample_size} addresses (out of {total_found}) to mapitems_test...")
 
-      # Write each record to mapitems_test with id, created_time, and random 120-day timestamp
       for addr in sampled_addresses:
         h_no = addr["house_no"]
         st = addr["street"]
@@ -182,6 +232,7 @@ def get_test_addresses(start_country=None, start_state=None, start_pcode=None):
         app_tables.mapitems_test.add_row(
             id=generate_numeric_id(),
             created_time=current_timestamp,
+            region=region_name,
             user_name=user_name_key,
             address_1=f"{h_no} {st}",
             address_2="",
@@ -194,7 +245,6 @@ def get_test_addresses(start_country=None, start_state=None, start_pcode=None):
             date_time=random_timestamp
         )
 
-      # Log result in Data_Address_Results with id and created_time
       app_tables.data_address_results.add_row(
           id=generate_numeric_id(),
           created_time=current_timestamp,
