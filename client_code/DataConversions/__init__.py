@@ -51,6 +51,9 @@ class DataConversions(DataConversionsTemplate):
     
   def Harvest_Address_click(self, **event_args):
     """Called when the Harvest Address button is clicked"""
-    print("Launching US test address harvest task...")
-    anvil.server.call('start_us_test_harvest')
-    alert("US test harvest background task launched! Check your server logs.")
+    print("Launching individual address harvesting task for 90272...")
+  
+    # This must match the name of your @anvil.server.callable function
+    anvil.server.call('start_individual_harvest')
+  
+    alert("Individual address harvest background task launched! Check your server logs.")
