@@ -1,4 +1,4 @@
-from ._anvil_designer import DateaonversionsTemplate
+from ._anvil_designer import DataConversionsTemplate
 from anvil import *
 import anvil.server
 import anvil.users
@@ -7,7 +7,7 @@ import anvil.tables.query as q
 from anvil.tables import app_tables
 
 
-class Dateaonversions(DateaonversionsTemplate):
+class DataConversions(DataConversionsTemplate):
   def __init__(self, **properties):
     # Set Form properties and Data Bindings.
     super().__init__(**properties)
@@ -47,3 +47,10 @@ class Dateaonversions(DateaonversionsTemplate):
     
       # Example: Display the result in a Label on your form
       self.SQL_Reply.text = f"Total postal codes: {count}"
+
+    
+  def Harvest_Address_click(self, **event_args):
+    """Called when the Harvest Address button is clicked"""
+    print("Launching US test address harvest task...")
+    anvil.server.call('start_us_test_harvest')
+    alert("US test harvest background task launched! Check your server logs.")
