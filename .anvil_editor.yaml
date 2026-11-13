@@ -24,6 +24,7 @@ unique_ids:
     DataConversionModules.DataHarvestPostalCodes: '1794444080117934943915312.2646'
     DataConversionModules.DataImport: '1791501889030751950978876.976'
     DataConversionModules.DataImport2: '1791605217090951720095644.3876'
+    DataConversionModules.DataLoadTestAddreses: '1794532605860509973439738.2342'
     DataConversionModules.DataSQLQueries: '1794516222234298481040779.1423'
     MapServerModule: '179142989567429559703201.918476'
     ScorecardModule: '1793941776303722150824050.4746'

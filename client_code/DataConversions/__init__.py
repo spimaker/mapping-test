@@ -57,3 +57,10 @@ class DataConversions(DataConversionsTemplate):
     anvil.server.call('start_individual_harvest')
   
     alert("Individual address harvest background task launched! Check your server logs.")
+
+
+  def Load_Test_Addresses_click(self, **event_args):
+    """Called when the Load Test Addresses button is clicked"""
+    print("Launching live test address harvest task into MapItems_Test...")
+    anvil.server.call('start_test_address_load')
+    alert("Live harvesting task launched! Check your server logs for real-time progress.")
