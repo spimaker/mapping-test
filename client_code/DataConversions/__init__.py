@@ -46,7 +46,7 @@ class DataConversions(DataConversionsTemplate):
       count = anvil.server.call('get_postal_code_count')
     
       # Example: Display the result in a Label on your form
-      self.SQL_Reply.text = f"Total postal codes: {count}"
+      self.SQL_Reply.text = f"Total records: {count}"
 
     
   def Harvest_Address_click(self, **event_args):

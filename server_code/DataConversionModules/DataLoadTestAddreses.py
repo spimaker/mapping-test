@@ -19,6 +19,12 @@ def get_test_addresses():
   rows = app_tables.datahub_postal_codes.search()
   
   processed_count = 0
+  resuming = True  # Set to True to enable skipping until we hit our target resume point
+
+  # Target resume point
+  resume_country = "AU"
+  resume_state = "NSW"
+  resume_pcode = "2298"
 
   for row in rows:
     country = row.get('country_code') or row.get('Country_Code') or ''
@@ -27,6 +33,13 @@ def get_test_addresses():
 
     if not country or not pcode:
       continue
+
+    # Skip rows until we find the resume point
+    if resuming:
+      if country == resume_country and state == resume_state and pcode == resume_pcode:
+        resuming = False
+        print(f"Resuming harvest *after* {resume_country} {resume_state} {resume_pcode}...")
+      continue  # Skip this row and all prior rows until resume point is passed
 
     print(f"\n--- Examining Postal Code: {pcode} ({country}, {state}) ---")
     
