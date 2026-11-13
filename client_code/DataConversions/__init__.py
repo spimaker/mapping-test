@@ -60,7 +60,42 @@ class DataConversions(DataConversionsTemplate):
 
 
   def Load_Test_Addresses_click(self, **event_args):
-    """Called when the Load Test Addresses button is clicked"""
-    print("Launching live test address harvest task into MapItems_Test...")
-    anvil.server.call('start_test_address_load')
-    alert("Live harvesting task launched! Check your server logs for real-time progress.")
+    # Create input text boxes with explicit widths so they render correctly in the alert
+    country_box = anvil.TextBox(placeholder="e.g. AU", width="100%")
+    state_box = anvil.TextBox(placeholder="e.g. NSW", width="100%")
+    pcode_box = anvil.TextBox(placeholder="e.g. 2298", width="100%")
+    
+    # Build the container panel
+    prompt_content = anvil.ColumnPanel()
+    prompt_content.add_component(anvil.Label(text="Enter starting point to resume (leave blank to start from the top):", bold=True))
+    prompt_content.add_component(anvil.Label(text="Country Code:"))
+    prompt_content.add_component(country_box)
+    prompt_content.add_component(anvil.Label(text="State / Region:"))
+    prompt_content.add_component(state_box)
+    prompt_content.add_component(anvil.Label(text="Postal Code:"))
+    prompt_content.add_component(pcode_box)
+    
+    # Trigger the alert popup
+    result = anvil.alert(
+        content=prompt_content, 
+        title="Harvester Resumption Setup", 
+        buttons=[("Start Harvest", True), ("Cancel", False)],
+        large=False
+    )
+    
+    # If the user clicked "Start Harvest"
+    if result is True:
+      c_val = country_box.text.strip().upper() or None
+      s_val = state_box.text.strip().upper() or None
+      p_val = pcode_box.text.strip() or None
+      
+      # Call the server background task with the chosen starting coordinates
+      anvil.server.call(
+          'start_test_address_load', 
+          start_country=c_val, 
+          start_state=s_val, 
+          start_pcode=p_val
+      )
+      anvil.alert("Background harvesting task started successfully!")
+
+  
