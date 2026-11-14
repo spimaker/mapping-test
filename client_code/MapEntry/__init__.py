@@ -156,15 +156,25 @@ class MapEntry(MapEntryTemplate):
 
   def refresh_map_display(self, cluster_type=None, distance_value=None, active_record_id=None):
         self.map_1.clear()
-      
         cluster_type = cluster_type or 'region'
+      
+        # Automatically extract viewport bounds if the map component supports it
+        bounds = None
+        if hasattr(self.map_1, 'get_bounds'):
+          try:
+            b = self.map_1.get_bounds()
+            if b:
+              bounds = {'north': b.north, 'south': b.south, 'east': b.east, 'west': b.west}
+          except Exception:
+            pass
 
         markers = anvil.server.call(
             'get_clustered_map_markers', 
             cluster_type=cluster_type, 
             distance_value=distance_value, 
             active_record_id=active_record_id,
-            use_test_table=self.use_test_table
+            use_test_table=self.use_test_table,
+            bounds=bounds
         )
     
         for m in markers:
@@ -173,10 +183,9 @@ class MapEntry(MapEntryTemplate):
           users = m.get('users', [m.get('user_name', 'Unknown User')])
           hex_color = m.get('color', '#ADD8E6')
       
-          # Construct a vector symbol icon using the tiered hex color from the server
           marker_symbol = self.map_1.Symbol(
               path=self.map_1.SymbolPath.CIRCLE,
-              scale=12,
+              scale=m.get('scale', 12),
               fill_color=hex_color,
               fill_opacity=0.9,
               stroke_color='#FFFFFF',
@@ -223,7 +232,7 @@ class MapEntry(MapEntryTemplate):
                 else:
                   break
             return marker_click_handler
-        
+      
           marker.set_event_handler('click', make_click_handler(title, users))
           self.map_1.add_component(marker)
       
@@ -233,29 +242,24 @@ class MapEntry(MapEntryTemplate):
           self.map_1.zoom = 4
           
   def cluster_dropdown_change(self, sender, **event_args):
-      """Triggered when the user changes the cluster type dropdown."""
       val = sender.selected_value
       is_radial = val and val.lower() in ['miles', 'kilometers', 'mi', 'km']
     
-      # Toggle visibility based on whether radial clustering is selected
       self.Threshold_Label.visible = is_radial
       self.Threshold_Dropdown.visible = is_radial
     
       distance_val = None
       if is_radial:
-        # Shift focus to the radius dropdown when it appears
         self.Threshold_Dropdown.focus()
         distance_val = self.Threshold_Dropdown.selected_value
       
       self.refresh_map_display(cluster_type=val, distance_value=distance_val)
 
   def threshold_dropdown_change(self, sender, **event_args):
-    """Triggered when the user adjusts the radius threshold dropdown."""
     cluster_type_val = self.Cluster_Type_Dropdown.selected_value
     self.refresh_map_display(cluster_type=cluster_type_val, distance_value=sender.selected_value)
 
   def Info_Link_click(self, **event_args):
-      """Triggered when the user clicks the info link."""
       alert(
           content="Clusters allow you to zoom in from Global Region down to Postal Code or select Miles/Kilometers and a radius to view the records at these levels.",
           title="Cluster Information",

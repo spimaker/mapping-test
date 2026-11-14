@@ -3,7 +3,7 @@ import uuid
 import math
 import anvil.server
 import anvil.tables as tables
-from anvil.tables import app_tables
+from anvil.tables import app_tables, query as q
 import pycountry
 from pycountry_convert import country_alpha2_to_continent_code
 from country_state_city import Country, State, City
@@ -83,9 +83,8 @@ def get_marker_scale(count):
 
 @anvil.server.callable
 def get_map_markers_with_privacy_view(active_record_id=None, show_actuals=True, use_test_table=False):
-    """Fetches markers: shows red actual + green offset ONLY for the just-entered record."""
     table = get_target_table(use_test_table)
-    all_items = list(table.search())
+    all_items = list(table.search(q.fetch_only('id', 'latitude', 'longitude', 'offset_latitude', 'offset_longitude', 'user')))
     markers = []
 
     for row in all_items:
@@ -94,7 +93,7 @@ def get_map_markers_with_privacy_view(active_record_id=None, show_actuals=True, 
         act_lon = row.get('longitude')
         off_lat = row.get('offset_latitude') or act_lat
         off_lon = row.get('offset_longitude') or act_lon
-        username = row.get('user_name', 'Unknown User')
+        username = row.get('user') or row.get('user_name', 'Unknown User')
 
         is_latest = (record_id == active_record_id)
 
@@ -132,20 +131,40 @@ def get_map_markers_with_privacy_view(active_record_id=None, show_actuals=True, 
 
 
 @anvil.server.callable
-def get_clustered_map_markers(cluster_type='region', distance_value=None, distance_unit='miles', active_record_id=None, use_test_table=False):
-    """Aggregates map records based on administrative boundaries, radial distance, or individual view."""
+def get_clustered_map_markers(cluster_type='region', distance_value=None, distance_unit='miles', active_record_id=None, use_test_table=False, bounds=None):
+    """Aggregates map records based on administrative boundaries, radial distance, or viewport bounding box."""
     table = get_target_table(use_test_table)
-    all_items = list(table.search())
     cluster_type = (cluster_type or 'region').lower()
 
-    # --- 1. Administrative Grouping (Country, State, City, Region, Postal Code) ---
+    fetch_cols = ('latitude', 'longitude', 'user', 'region', 'country_code', 'state', 'city', 'postal_code', 'id')
+
+    # Use robust Anvil query operators (q.all_of, q.between / q.greater_than_or_equal_to) for range filtering
+    if bounds and cluster_type not in ['region', 'country']:
+        south = bounds.get('south')
+        north = bounds.get('north')
+        west = bounds.get('west')
+        east = bounds.get('east')
+        
+        try:
+            all_items = list(table.search(
+                q.fetch_only(*fetch_cols),
+                latitude=q.all_of(q.greater_than_or_equal_to(south), q.less_than_or_equal_to(north)),
+                longitude=q.all_of(q.greater_than_or_equal_to(west), q.less_than_or_equal_to(east))
+            ))
+        except Exception:
+            # Fallback if bounding search fails
+            all_items = list(table.search(q.fetch_only(*fetch_cols)))
+    else:
+        all_items = list(table.search(q.fetch_only(*fetch_cols)))
+
+    # --- 1. Administrative Grouping ---
     if cluster_type in ['country', 'state', 'city', 'region', 'postal code']:
         groups = {}
         
         for row in all_items:
             lat = row.get('latitude')
             lon = row.get('longitude')
-            username = row.get('user_name', 'Unknown User')
+            username = row.get('user') or row.get('user_name', 'Unknown User')
             
             if lat is None or lon is None:
                 continue
@@ -175,25 +194,23 @@ def get_clustered_map_markers(cluster_type='region', distance_value=None, distan
                 key_val = 'Unassigned'
 
             if key_val not in groups:
-                groups[key_val] = {'lats': [], 'lons': [], 'users': []}
+                groups[key_val] = {'lats': [], 'lons': [], 'users': set()}
             
             groups[key_val]['lats'].append(lat)
             groups[key_val]['lons'].append(lon)
-            
-            if username not in groups[key_val]['users']:
-                groups[key_val]['users'].append(username)
+            groups[key_val]['users'].add(username)
                 
         markers = []
         for name, data in groups.items():
-            if data['lats'] and data['lons']:
-                avg_lat = sum(data['lats']) / len(data['lats'])
-                avg_lon = sum(data['lons']) / len(data['lons'])
-                user_list = data['users']
+            lats = data['lats']
+            lons = data['lons']
+            if lats and lons:
+                user_list = list(data['users'])
                 count = len(user_list)
                 
                 markers.append({
-                    'lat': avg_lat,
-                    'lon': avg_lon,
+                    'lat': sum(lats) / len(lats),
+                    'lon': sum(lons) / len(lons),
                     'color': get_marker_color(count),
                     'scale': get_marker_scale(count),
                     'title': f"{str(name).title()} ({count} users)",
@@ -201,7 +218,7 @@ def get_clustered_map_markers(cluster_type='region', distance_value=None, distan
                 })
         return markers
 
-    # --- 2. Radial Distance Grouping (Miles or Kilometers) ---
+    # --- 2. Radial Distance Grouping ---
     elif cluster_type in ['miles', 'kilometers', 'mi', 'km']:
         try:
             radius = float(distance_value or 10)
@@ -214,7 +231,7 @@ def get_clustered_map_markers(cluster_type='region', distance_value=None, distan
         for row in all_items:
             lat = row.get('latitude')
             lon = row.get('longitude')
-            username = row.get('user_name', 'Unknown User')
+            username = row.get('user') or row.get('user_name', 'Unknown User')
             
             if lat is None or lon is None:
                 continue
@@ -225,8 +242,7 @@ def get_clustered_map_markers(cluster_type='region', distance_value=None, distan
             for cluster in clusters:
                 dist = calculate_haversine_distance_km(cluster['lat'], cluster['lon'], lat, lon)
                 if dist <= radius_km:
-                    if username not in cluster['users']:
-                        cluster['users'].append(username)
+                    cluster['users'].add(username)
                     cluster['lats'].append(lat)
                     cluster['lons'].append(lon)
                     cluster['lat'] = sum(cluster['lats']) / len(cluster['lats'])
@@ -240,13 +256,13 @@ def get_clustered_map_markers(cluster_type='region', distance_value=None, distan
                     'lon': lon,
                     'lats': [lat],
                     'lons': [lon],
-                    'users': [username]
+                    'users': {username}
                 })
                 
         markers = []
         unit_label = 'miles' if cluster_type in ['miles', 'mi'] else 'km'
         for i, cluster in enumerate(clusters, 1):
-            user_list = cluster['users']
+            user_list = list(cluster['users'])
             count = len(user_list)
             markers.append({
                 'lat': cluster['lat'],
@@ -272,7 +288,6 @@ def save_map_item(record_data, use_test_table=False):
     postal_code = record_data.get('postal_code')
     user_name = record_data.get('user_name')
 
-    # Determine region dynamically from country code using pycountry_convert
     region = get_region_from_country_code(country)
 
     query_parts = [address_1, address_2, city, state, country, postal_code]
@@ -298,7 +313,7 @@ def save_map_item(record_data, use_test_table=False):
     table = get_target_table(use_test_table)
     table.add_row(
         id=generated_id,
-        user_name=user_name,
+        user=user_name,
         region=region,
         country_code=country,
         state=state,
