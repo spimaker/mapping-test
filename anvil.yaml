@@ -198,7 +198,7 @@ runtime_options:
   server_spec: {base: python310-minimal}
   version: 3
 services:
-- client_config: {enable_v2: true}
+- client_config: {enable_split: true, enable_v2: true}
   server_config: {}
   source: /runtime/services/tables.yml
 - client_config: {allow_remember_me: true, allow_signup: true, confirm_email: true, enable_automatically: true, remember_me_days: 30, require_secure_passwords: true, use_email: false, use_token: true}

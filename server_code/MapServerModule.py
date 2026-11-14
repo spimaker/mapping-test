@@ -283,7 +283,7 @@ def save_map_item(record_data):
                 lat = location.latitude
                 lon = location.longitude
                 formatted_address = location.address
-    except Exception as e:
+    except Exception:
         pass
 
     current_time = datetime.datetime.now()

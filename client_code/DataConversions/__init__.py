@@ -98,4 +98,11 @@ class DataConversions(DataConversionsTemplate):
       )
       anvil.alert("Background harvesting task started successfully!")
 
+  @handle("Copy_to_MapItem_Test2", "click")
+  def Copy_to_MapItem_Test2_click(self, **event_args):
+    """This method is called when the button is clicked"""
+    task = anvil.server.call("start_copy_entire_table")
+    alert("Background copy task started! Check your server logs for minute-by-minute progress updates.")
+  
+
   
