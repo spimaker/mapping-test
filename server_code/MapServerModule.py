@@ -13,6 +13,11 @@ from geopy.geocoders import Nominatim
 geolocator = Nominatim(user_agent="NaturistMappingProject")
 
 
+def get_target_table(use_test_table):
+    """Helper to return the correct Data Table based on the flag."""
+    return app_tables.mapitems_test if use_test_table else app_tables.mapitems
+
+
 def get_region_from_country_code(country_code):
     """Maps a country code to a global region using pycountry_convert."""
     if not country_code:
@@ -77,9 +82,10 @@ def get_marker_scale(count):
 
 
 @anvil.server.callable
-def get_map_markers_with_privacy_view(active_record_id=None, show_actuals=True):
+def get_map_markers_with_privacy_view(active_record_id=None, show_actuals=True, use_test_table=False):
     """Fetches markers: shows red actual + green offset ONLY for the just-entered record."""
-    all_items = list(app_tables.mapitems.search())
+    table = get_target_table(use_test_table)
+    all_items = list(table.search())
     markers = []
 
     for row in all_items:
@@ -126,9 +132,10 @@ def get_map_markers_with_privacy_view(active_record_id=None, show_actuals=True):
 
 
 @anvil.server.callable
-def get_clustered_map_markers(cluster_type='region', distance_value=None, distance_unit='miles', active_record_id=None):
+def get_clustered_map_markers(cluster_type='region', distance_value=None, distance_unit='miles', active_record_id=None, use_test_table=False):
     """Aggregates map records based on administrative boundaries, radial distance, or individual view."""
-    all_items = list(app_tables.mapitems.search())
+    table = get_target_table(use_test_table)
+    all_items = list(table.search())
     cluster_type = (cluster_type or 'region').lower()
 
     # --- 1. Administrative Grouping (Country, State, City, Region, Postal Code) ---
@@ -146,7 +153,6 @@ def get_clustered_map_markers(cluster_type='region', distance_value=None, distan
             lat, lon = float(lat), float(lon)
 
             if cluster_type == 'region':
-                # Use stored region column if available, otherwise compute dynamically
                 key_val = row.get('region')
                 if not key_val:
                     c_code = row.get('country_code')
@@ -253,11 +259,11 @@ def get_clustered_map_markers(cluster_type='region', distance_value=None, distan
         return markers
 
     else:
-        return get_map_markers_with_privacy_view(active_record_id=active_record_id)
+        return get_map_markers_with_privacy_view(active_record_id=active_record_id, use_test_table=use_test_table)
 
 
 @anvil.server.callable
-def save_map_item(record_data):
+def save_map_item(record_data, use_test_table=False):
     country = record_data.get('country_code')
     state = record_data.get('state')
     city = record_data.get('city')
@@ -289,7 +295,8 @@ def save_map_item(record_data):
     current_time = datetime.datetime.now()
     generated_id = str(uuid.uuid4())
 
-    app_tables.mapitems.add_row(
+    table = get_target_table(use_test_table)
+    table.add_row(
         id=generated_id,
         user_name=user_name,
         region=region,
