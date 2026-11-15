@@ -321,7 +321,7 @@ textarea.anvil-text-area:disabled,
   box-shadow: 0 1px 3px rgba(0,0,0,0.2);
 }
 
-.anvil-role-swatch-8  { width: 12px; height: 12px; background-color: #ADD8E6 !important; border-radius: 50%; display: inline-block; border: 1px solid #ccc; }
+.anvil-role-swatch-8  { width: 12px; height: 12px; background-color: #E0F2FE !important; border-radius: 50%; display: inline-block; border: 1px solid #ccc; }
 .anvil-role-swatch-10 { width: 14px; height: 14px; background-color: #87CEEB !important; border-radius: 50%; display: inline-block; border: 1px solid #ccc; }
 .anvil-role-swatch-12 { width: 16px; height: 16px; background-color: #1E90FF !important; border-radius: 50%; display: inline-block; border: 1px solid #ccc; }
 .anvil-role-swatch-16 { width: 20px; height: 20px; background-color: #4169E1 !important; border-radius: 50%; display: inline-block; border: 1px solid #ccc; }

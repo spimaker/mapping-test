@@ -1,6 +1,6 @@
 <anvil-form container="ColumnPanel">
-  <anvil-component type="FlowPanel" name="flow_panel_1" container:grid_position="KPJLVQ,KBNHXF">
-    <anvil-component type="Label" name="color_swatch_label"></anvil-component>
+  <anvil-component type="FlowPanel" name="flow_panel_1" prop:spacing='{"margin":["0",null,"0",null]}' container:grid_position="ECOEXJ,OFXUSE">
+    <anvil-component type="Label" name="color_swatch_label" prop:text="" prop:spacing='{"margin":["0",null,null,null],"padding":["0",null,"0",null]}' bind:text bind:role="self.item['role']"></anvil-component>
+    <anvil-component type="Label" name="range_label" prop:text="" prop:spacing='{"margin":["0",null,"0",null],"padding":["0",null,"0",null]}' bind:text="self.item['range']"></anvil-component>
   </anvil-component>
-  <anvil-component type="Label" name="range_label" container:grid_position="KPJLVQ,CMPYAE"></anvil-component>
 </anvil-form>

@@ -29,6 +29,7 @@ class MapEntry(MapEntryTemplate):
 
         self.refresh_map_display(cluster_type='Country')
 
+        # Populate the legend repeating panel items
         self.repeating_panel_1.items = [
               {'range': '1 – 999 records', 'role': 'swatch-8'},
               {'range': '1,000 – 9,999 records', 'role': 'swatch-10'},
@@ -36,7 +37,7 @@ class MapEntry(MapEntryTemplate):
               {'range': '100,000 – 249,999 records', 'role': 'swatch-16'},
               {'range': '250,000 – 999,999 records', 'role': 'swatch-18'},
               {'range': '1,000,000+ records', 'role': 'swatch-20'},
-          ]
+         ]
     
     def clear_button_click(self, **event_args):
         self.User_Name_Value.text = ""
@@ -65,8 +66,9 @@ class MapEntry(MapEntryTemplate):
                 else selected_city
             )
 
+            # Updated 'user' key matching the database schema migration
             record_data = {
-                'user_name': self.User_Name_Value.text,
+                'user': self.User_Name_Value.text,
                 'country_code': self.Country_Code_Value.selected_value,
                 'state': self.State_Province_Region_Value.selected_value,
                 'city': final_city,
@@ -175,12 +177,13 @@ class MapEntry(MapEntryTemplate):
             use_test_table=self.use_test_table,
             bounds=bounds
         )
-    
+      
         for m in markers:
-            lat_lng = self.map_1.LatLng(m['lat'], m['lon'])
-            title = m.get('title', 'Cluster')
-            users = m.get('users', [m.get('user_name', 'Unknown User')])
-            hex_color = m.get('color', '#ADD8E6')
+                    lat_lng = self.map_1.LatLng(m['lat'], m['lon'])
+                    title = m.get('title', 'Cluster')
+                    # Look for 'user' to match the database schema migration
+                    users = m.get('users', [m.get('user', 'Unknown User')])
+                    hex_color = m.get('color', '#ADD8E6')
       
             marker_symbol = self.map_1.Symbol(
                 path=self.map_1.SymbolPath.CIRCLE,
@@ -204,26 +207,26 @@ class MapEntry(MapEntryTemplate):
                     current_page = 0
                     total_users = len(user_list)
                     total_pages = max(1, (total_users + page_size - 1) // page_size)
-                
+              
                     while True:
                         start_idx = current_page * page_size
                         end_idx = min(start_idx + page_size, total_users)
                         page_users = user_list[start_idx:end_idx]
-                
+              
                         formatted_users = "\n".join([f"• {u}" for u in page_users])
                         page_info = f"Page {current_page + 1} of {total_pages} (Showing {start_idx + 1}-{end_idx} of {total_users})"
-                
+              
                         content = f"{cluster_title}\n\n{page_info}\n\n{formatted_users}"
-                
+              
                         buttons = []
                         if current_page > 0:
                             buttons.append(("Previous", "prev"))
                         if current_page < total_pages - 1:
                             buttons.append(("Next", "next"))
                         buttons.append(("Close", None))
-                
+              
                         action = alert(content=content, title="Cluster Users", large=True, buttons=buttons)
-                
+              
                         if action == "next":
                             current_page += 1
                         elif action == "prev":
@@ -251,7 +254,7 @@ class MapEntry(MapEntryTemplate):
         if is_radial:
             self.Threshold_Dropdown.focus()
             distance_val = self.Threshold_Dropdown.selected_value
-      
+    
         self.refresh_map_display(cluster_type=val, distance_value=distance_val)
 
     def threshold_dropdown_change(self, sender, **event_args):
