@@ -179,11 +179,11 @@ class MapEntry(MapEntryTemplate):
         )
       
         for m in markers:
-                    lat_lng = self.map_1.LatLng(m['lat'], m['lon'])
-                    title = m.get('title', 'Cluster')
-                    # Look for 'user' to match the database schema migration
-                    users = m.get('users', [m.get('user', 'Unknown User')])
-                    hex_color = m.get('color', '#ADD8E6')
+            lat_lng = self.map_1.LatLng(m['lat'], m['lon'])
+            title = m.get('title', 'Cluster')
+            # Look for 'user' to match the database schema migration
+            users = m.get('users', [m.get('user', 'Unknown User')])
+            hex_color = m.get('color', '#ADD8E6')
       
             marker_symbol = self.map_1.Symbol(
                 path=self.map_1.SymbolPath.CIRCLE,
