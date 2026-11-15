@@ -270,7 +270,7 @@ def get_clustered_map_markers(cluster_type='region', distance_value=None, distan
 @anvil.server.callable
 def save_map_item(item_id, item_data, use_test_table=True):
     """
-    Saves/updates a map item and updates all 5 summary tables in real-time.
+    Saves/updates a map item, updates all 5 summary tables, and syncs the lightweight map_user_lookup table.
     """
     table = get_target_table(use_test_table)
     
@@ -332,6 +332,24 @@ def save_map_item(item_id, item_data, use_test_table=True):
         update_summary_tier(app_tables.map_city_summary, {'country_code': country, 'state': state, 'city': city}, lat_f, lon_f, user_name, table, country_code=country, state=state, city=city)
         update_summary_tier(app_tables.map_postal_summary, {'country_code': country, 'postal_code': postal_code}, lat_f, lon_f, user_name, table, country_code=country, postal_code=postal_code)
 
+    # Sync with lightweight map_user_lookup table for lightning-fast marker click popups
+    lookup_table = app_tables.map_user_lookup
+    existing_lookup = lookup_table.get(id=generated_id)
+    lookup_data = {
+        'id': generated_id,
+        'user': user_name,
+        'region': region,
+        'country_code': country,
+        'state': state,
+        'city': city,
+        'postal_code': postal_code
+    }
+    
+    if existing_lookup:
+        existing_lookup.update(**lookup_data)
+    else:
+        lookup_table.add_row(**lookup_data)
+
     return generated_id
 
 
@@ -366,7 +384,6 @@ def update_summary_tier(summary_table, query_dict, lat, lon, user, raw_table, **
         summary_row.update(**metrics)
     else:
         summary_table.add_row(**query_dict, **metrics)
-
 
 
 @anvil.server.callable
@@ -455,23 +472,24 @@ def geocode_address(address_query):
         pass
     return {'latitude': None, 'longitude': None, 'formatted_address': ''}
 
+
 @anvil.server.callable
 def get_users_for_cluster(cluster_keys, use_test_table=False):
     """
-    Queries the raw table on demand when a user clicks a map marker,
-    returning the unique list of users belonging to that specific geographic area.
+    Queries the lightweight map_user_lookup table on demand when a marker is clicked,
+    returning the unique list of users belonging to that specific geographic area in milliseconds.
     """
-    raw_table = get_target_table(use_test_table)
+    lookup_table = app_tables.map_user_lookup
     
-    # Build query filters dynamically from the marker's dictionary keys
-    # (e.g., region, country_code, state, city, or postal_code)
     query_filters = {}
     for k, v in cluster_keys.items():
         if k in ['region', 'country_code', 'state', 'city', 'postal_code'] and v:
             query_filters[k] = v
 
-    # Fetch matching rows and extract unique users
-    matching_rows = raw_table.search(q.fetch_only('user'), **query_filters)
+    if not query_filters:
+        return ['Unknown User']
+
+    matching_rows = lookup_table.search(q.fetch_only('user'), **query_filters)
     
     user_list = list({row['user'] for row in matching_rows if row.get('user')})
     return user_list if user_list else ['Unknown User']

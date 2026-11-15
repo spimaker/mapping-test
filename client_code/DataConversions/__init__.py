@@ -9,6 +9,7 @@ class DataConversions(DataConversionsTemplate):
     def __init__(self, **properties):
         # Set Form properties and Data Bindings
         self.init_components(**properties)
+        self.use_test_table = True
 
     def sync_countries_button_click(self, **event_args):
         """Triggered when 'DataHub Countries' button is clicked."""
@@ -99,3 +100,20 @@ class DataConversions(DataConversionsTemplate):
         finally:
             # 5. Re-enable the button
             self.Build_summary_tables.enabled = True
+
+          
+    def Build_map_user_lookup_click(self, **event_args):
+            """Triggered when the backfill button is clicked to launch the background task."""
+            try:
+                use_test = getattr(self, 'use_test_table', True)
+            
+                # Launch background task and get immediate response
+                result_message = anvil.server.call(
+                    'populate_map_user_lookup', 
+                    use_test_table=use_test
+                )
+                
+                alert(content=result_message, title="Background Task Started", large=False)
+            
+            except Exception as e:
+                alert(content=f"Error launching background task: {e}", title="Error", large=False)
