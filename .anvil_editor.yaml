@@ -17,6 +17,7 @@ unique_ids:
   server_modules:
     DataConversionModules: '179451706639910093217096.412088'
     DataConversionModules.DataAddDateTimes: '1793942497355886893278895.3121'
+    DataConversionModules.DataBuildSummaryTables: '1794700004307190243722886.62094'
     DataConversionModules.DataDataHubCountriesImport: '1794441821283144368599529.30835'
     DataConversionModules.DataDeleteAllRowsMapitems_ManualCity: '179436720570286572730046.16428'
     DataConversionModules.DataDeleteRowsByID: '1791606347919294932214368.12024'
