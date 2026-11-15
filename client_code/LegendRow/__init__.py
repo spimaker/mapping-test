@@ -1,10 +1,10 @@
-from ._anvil_designer import LegendRowTemplateTemplate
+from ._anvil_designer import LegendRowTemplate
 import anvil.server
 import anvil.tables as tables
 import anvil.tables.query as q
 from anvil.tables import app_tables
 
-class LegendRowTemplate(LegendRowTemplateTemplate):
+class LegendRow(LegendRowTemplate):
     def __init__(self, **properties):
         # Set Form properties and Data Bindings
         self.init_components(**properties)
@@ -14,10 +14,9 @@ class LegendRowTemplate(LegendRowTemplateTemplate):
         if not item:
             return
             
-        # Assuming your item dictionary or data row has 'color' and 'text' / 'range' keys:
         if hasattr(self, 'label_text'):
             self.label_text.text = item.get('text', str(item))
             
-        # Optional: Set color swatch background or role if applicable
         if hasattr(self, 'color_swatch_label') and 'color' in item:
             self.color_swatch_label.role = item.get('color')
+          
