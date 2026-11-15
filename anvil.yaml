@@ -195,6 +195,7 @@ name: Mapping Test
 package_name: Mapping_Test
 runtime_options:
   client_version: '3'
+  server_persist: true
   server_spec: {base: python310-minimal}
   version: 3
 services:
