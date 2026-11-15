@@ -4,19 +4,20 @@ import anvil.tables.query as q
 from anvil.tables import app_tables
 
 @anvil.server.callable
-def populate_all_map_summaries():
+def populate_all_map_summaries(use_test_table=True):
     """
     Reads all records from MapItems_Test and populates 
     the 5 summary tables with centerpoints, bounding boxes, and unique user counts.
     """
-    print("Fetching all records from MapItems_Test...")
-    all_rows = list(app_tables.mapitems_test.search(
-        tables.fetch_only('region', 'country_code', 'state', 'city', 'postal_code', 'latitude', 'longitude', 'user')
+    table = app_tables.mapitems_test if use_test_table else app_tables.mapitems
+    print("Fetching all records from MapItems table...")
+    
+    all_rows = list(table.search(
+        tables.fetch_only('region', 'country_code', 'state', 'city', 'postal_code', 'latitude', 'longitude', 'user', 'user_name')
     ))
     print(f"Processing {len(all_rows)} records...")
 
     # Dictionaries to accumulate data for each tier
-    # Keys will be tuples matching the hierarchical scope
     regions = {}      # key: (region,)
     countries = {}    # key: (country_code,)
     states = {}       # key: (country_code, state)
@@ -48,7 +49,9 @@ def populate_all_map_summaries():
         state = (row.get('state') or '').strip().upper()
         city = (row.get('city') or '').strip()
         postal = (row.get('postal_code') or '').strip()
-        user = row.get('user')
+        
+        # Check both 'user' and 'user_name' fields robustly
+        user = row.get('user') or row.get('user_name')
 
         if region:
             add_to_bucket(regions, (region,), lat, lon, user)
@@ -106,4 +109,4 @@ def populate_all_map_summaries():
         metrics = compute_metrics(data)
         app_tables.map_postal_summary.add_row(country_code=cc, postal_code=pc, **metrics)
 
-    return "Migration completed successfully across all 5 summary tiers!"
+    return f"Migration completed successfully! Processed {len(all_rows)} records across all 5 summary tiers."

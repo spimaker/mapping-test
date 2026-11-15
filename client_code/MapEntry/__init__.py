@@ -158,7 +158,6 @@ class MapEntry(MapEntryTemplate):
         self.map_1.clear()
         cluster_type = cluster_type or 'region'
       
-        # Automatically extract viewport bounds if the map component supports it
         bounds = None
         if hasattr(self.map_1, 'get_bounds'):
             try:
