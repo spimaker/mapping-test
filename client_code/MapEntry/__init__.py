@@ -31,13 +31,13 @@ class MapEntry(MapEntryTemplate):
 
         # Populate the legend repeating panel items
         self.repeating_panel_1.items = [
-              {'range': '1 – 999 records', 'role': 'swatch-8'},
-              {'range': '1,000 – 9,999 records', 'role': 'swatch-10'},
-              {'range': '10,000 – 99,999 records', 'role': 'swatch-12'},
-              {'range': '100,000 – 249,999 records', 'role': 'swatch-16'},
-              {'range': '250,000 – 999,999 records', 'role': 'swatch-18'},
-              {'range': '1,000,000+ records', 'role': 'swatch-20'},
-         ]
+             {'range': '1 – 999 records', 'role': 'swatch-8'},
+             {'range': '1,000 – 9,999 records', 'role': 'swatch-10'},
+             {'range': '10,000 – 99,999 records', 'role': 'swatch-12'},
+             {'range': '100,000 – 249,999 records', 'role': 'swatch-16'},
+             {'range': '250,000 – 999,999 records', 'role': 'swatch-18'},
+             {'range': '1,000,000+ records', 'role': 'swatch-20'},
+        ]
     
     def clear_button_click(self, **event_args):
         self.User_Name_Value.text = ""
@@ -66,7 +66,6 @@ class MapEntry(MapEntryTemplate):
                 else selected_city
             )
 
-            # Updated 'user' key matching the database schema migration
             record_data = {
                 'user': self.User_Name_Value.text,
                 'country_code': self.Country_Code_Value.selected_value,
@@ -202,34 +201,37 @@ class MapEntry(MapEntryTemplate):
       
             def make_click_handler(cluster_title, keys):
                 def marker_click_handler(sender, **event_args):
-                    # Fetch fresh user list on demand from the server using the cluster keys
-                    user_list = anvil.server.call(
-                        'get_users_for_cluster', 
-                        keys, 
-                        use_test_table=self.use_test_table
-                    )
-                    if not user_list:
-                        user_list = ['Unknown User']
-
-                    page_size = 25
-                    current_page = 0
-                    total_users = len(user_list)
-                    total_pages = max(1, (total_users + page_size - 1) // page_size)
-              
+                    current_page = 1
+                    page_size = 100  # 100 users per page
+                    
                     while True:
-                        start_idx = current_page * page_size
-                        end_idx = min(start_idx + page_size, total_users)
-                        page_users = user_list[start_idx:end_idx]
+                        # Fetch the requested page dynamically from the server
+                        response = anvil.server.call(
+                            'get_users_for_cluster', 
+                            cluster_keys=keys, 
+                            page=current_page,
+                            page_size=page_size,
+                            use_test_table=self.use_test_table
+                        )
+                        
+                        users = response.get('users', ['Unknown User'])
+                        total_count = response.get('total_count', 0)
+                        current_page = response.get('page', 1)
+                        total_pages = response.get('total_pages', 1)
+                        
+                        # Calculate exact start/end slice indices for display text
+                        start_idx = ((current_page - 1) * page_size) + 1 if total_count > 0 else 0
+                        end_idx = min(current_page * page_size, total_count)
               
-                        formatted_users = "\n".join([f"• {u}" for u in page_users])
-                        page_info = f"Page {current_page + 1} of {total_pages} (Showing {start_idx + 1}-{end_idx} of {total_users})"
+                        formatted_users = "\n".join([f"• {u}" for u in users])
+                        page_info = f"Page {current_page} of {total_pages} (Showing {start_idx}-{end_idx} of {total_count})"
               
                         content = f"{cluster_title}\n\n{page_info}\n\n{formatted_users}"
               
                         buttons = []
-                        if current_page > 0:
+                        if current_page > 1:
                             buttons.append(("Previous", "prev"))
-                        if current_page < total_pages - 1:
+                        if current_page < total_pages:
                             buttons.append(("Next", "next"))
                         buttons.append(("Close", None))
               
@@ -275,3 +277,15 @@ class MapEntry(MapEntryTemplate):
             title="Cluster Information",
             large=False
         )
+
+    def Build_map_user_lookup_click(self, **event_args):
+        """Triggered when the backfill button is clicked to launch the background task."""
+        try:
+            use_test = getattr(self, 'use_test_table', True)
+            result_message = anvil.server.call(
+                'populate_map_user_lookup', 
+                use_test_table=use_test
+            )
+            alert(content=result_message, title="Background Task Started", large=False)
+        except Exception as e:
+            alert(content=f"Error launching background task: {e}", title="Error", large=False)

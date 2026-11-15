@@ -132,15 +132,10 @@ def get_map_markers_with_privacy_view(active_record_id=None, show_actuals=True, 
 
 @anvil.server.callable
 def get_clustered_map_markers(cluster_type='region', distance_value=None, distance_unit='miles', active_record_id=None, use_test_table=False, bounds=None, zoom_level=None):
-    """
-    Queries pre-aggregated summary tables using indexed bounding box coordinates 
-    for sub-second viewport culling, or falls back to radial distance / privacy views.
-    """
     cluster_type = (cluster_type or 'region').lower()
 
     # --- 1. Administrative Grouping via Pre-Aggregated Summary Tables ---
     if cluster_type in ['country', 'state', 'city', 'region', 'postal code', 'postal']:
-        # Select summary table based on cluster_type or zoom_level
         if cluster_type == 'region' or (zoom_level is not None and zoom_level < 4):
             table = app_tables.map_region_summary
             fetch_cols = ('region', 'center_lat', 'center_lon', 'min_lat', 'max_lat', 'min_lon', 'max_lon', 'user_count')
@@ -162,7 +157,6 @@ def get_clustered_map_markers(cluster_type='region', distance_value=None, distan
             fetch_cols = ('country_code', 'postal_code', 'center_lat', 'center_lon', 'min_lat', 'max_lat', 'min_lon', 'max_lon', 'user_count')
             label_key = 'postal_code'
 
-        # Instant database-level viewport culling using indexed bounding box columns
         if bounds:
             south = bounds.get('south')
             north = bounds.get('north')
@@ -190,7 +184,6 @@ def get_clustered_map_markers(cluster_type='region', distance_value=None, distan
             if lat is None or lon is None:
                 continue
 
-            # Determine title label from primary key
             name = row.get(label_key) or 'Cluster'
             
             markers.append({
@@ -269,9 +262,6 @@ def get_clustered_map_markers(cluster_type='region', distance_value=None, distan
 
 @anvil.server.callable
 def save_map_item(item_id, item_data, use_test_table=True):
-    """
-    Saves/updates a map item, updates all 5 summary tables, and syncs the lightweight map_user_lookup table.
-    """
     table = get_target_table(use_test_table)
     
     country = (item_data.get('country_code') or '').strip().upper()
@@ -323,7 +313,6 @@ def save_map_item(item_id, item_data, use_test_table=True):
         item_data['id'] = generated_id
         row = table.add_row(**item_data)
 
-    # Real-time summary table updates
     if lat is not None and lon is not None:
         lat_f, lon_f = float(lat), float(lon)
         update_summary_tier(app_tables.map_region_summary, {'region': region}, lat_f, lon_f, user_name, table, region=region)
@@ -332,7 +321,6 @@ def save_map_item(item_id, item_data, use_test_table=True):
         update_summary_tier(app_tables.map_city_summary, {'country_code': country, 'state': state, 'city': city}, lat_f, lon_f, user_name, table, country_code=country, state=state, city=city)
         update_summary_tier(app_tables.map_postal_summary, {'country_code': country, 'postal_code': postal_code}, lat_f, lon_f, user_name, table, country_code=country, postal_code=postal_code)
 
-    # Sync with lightweight map_user_lookup table for lightning-fast marker click popups
     lookup_table = app_tables.map_user_lookup
     existing_lookup = lookup_table.get(id=generated_id)
     lookup_data = {
@@ -354,7 +342,6 @@ def save_map_item(item_id, item_data, use_test_table=True):
 
 
 def update_summary_tier(summary_table, query_dict, lat, lon, user, raw_table, **raw_filters):
-    """Helper to recalculate bounding box and user count for a specific summary bucket."""
     summary_row = summary_table.get(**query_dict)
     
     bucket_rows = list(raw_table.search(**raw_filters))
@@ -474,10 +461,9 @@ def geocode_address(address_query):
 
 
 @anvil.server.callable
-def get_users_for_cluster(cluster_keys, use_test_table=False):
+def get_users_for_cluster(cluster_keys, page=1, page_size=100, use_test_table=False):
     """
-    Queries the lightweight map_user_lookup table on demand when a marker is clicked,
-    returning the unique list of users belonging to that specific geographic area in milliseconds.
+    Optimized to compute unique users lightning-fast without locking the server.
     """
     lookup_table = app_tables.map_user_lookup
     
@@ -487,9 +473,37 @@ def get_users_for_cluster(cluster_keys, use_test_table=False):
             query_filters[k] = v
 
     if not query_filters:
-        return ['Unknown User']
+        return {
+            'users': ['Unknown User'],
+            'total_count': 1,
+            'page': 1,
+            'total_pages': 1
+        }
 
+    # Stream unique usernames directly via set comprehension
     matching_rows = lookup_table.search(q.fetch_only('user'), **query_filters)
+    unique_users = sorted(list({row['user'] for row in matching_rows if row.get('user')}))
+    total_count = len(unique_users)
     
-    user_list = list({row['user'] for row in matching_rows if row.get('user')})
-    return user_list if user_list else ['Unknown User']
+    if not unique_users:
+        return {
+            'users': ['Unknown User'],
+            'total_count': 0,
+            'page': 1,
+            'total_pages': 1
+        }
+
+    total_pages = max(1, math.ceil(total_count / page_size))
+    page = max(1, min(page, total_pages))
+    
+    start_idx = (page - 1) * page_size
+    end_idx = start_idx + page_size
+    
+    paginated_users = unique_users[start_idx:end_idx]
+    
+    return {
+        'users': paginated_users,
+        'total_count': total_count,
+        'page': page,
+        'total_pages': total_pages
+    }
