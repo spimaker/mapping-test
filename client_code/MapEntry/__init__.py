@@ -181,9 +181,8 @@ class MapEntry(MapEntryTemplate):
         for m in markers:
             lat_lng = self.map_1.LatLng(m['lat'], m['lon'])
             title = m.get('title', 'Cluster')
-            # Look for 'user' to match the database schema migration
-            users = m.get('users', [m.get('user', 'Unknown User')])
             hex_color = m.get('color', '#ADD8E6')
+            cluster_keys = m.get('keys', {})
       
             marker_symbol = self.map_1.Symbol(
                 path=self.map_1.SymbolPath.CIRCLE,
@@ -201,8 +200,17 @@ class MapEntry(MapEntryTemplate):
                 animation=self.map_1.Animation.DROP
             )
       
-            def make_click_handler(cluster_title, user_list):
+            def make_click_handler(cluster_title, keys):
                 def marker_click_handler(sender, **event_args):
+                    # Fetch fresh user list on demand from the server using the cluster keys
+                    user_list = anvil.server.call(
+                        'get_users_for_cluster', 
+                        keys, 
+                        use_test_table=self.use_test_table
+                    )
+                    if not user_list:
+                        user_list = ['Unknown User']
+
                     page_size = 25
                     current_page = 0
                     total_users = len(user_list)
@@ -235,7 +243,7 @@ class MapEntry(MapEntryTemplate):
                             break
                 return marker_click_handler
       
-            marker.set_event_handler('click', make_click_handler(title, users))
+            marker.set_event_handler('click', make_click_handler(title, cluster_keys))
             self.map_1.add_component(marker)
       
         if markers:

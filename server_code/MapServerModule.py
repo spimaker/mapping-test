@@ -454,3 +454,24 @@ def geocode_address(address_query):
     except Exception as e:
         pass
     return {'latitude': None, 'longitude': None, 'formatted_address': ''}
+
+@anvil.server.callable
+def get_users_for_cluster(cluster_keys, use_test_table=False):
+    """
+    Queries the raw table on demand when a user clicks a map marker,
+    returning the unique list of users belonging to that specific geographic area.
+    """
+    raw_table = get_target_table(use_test_table)
+    
+    # Build query filters dynamically from the marker's dictionary keys
+    # (e.g., region, country_code, state, city, or postal_code)
+    query_filters = {}
+    for k, v in cluster_keys.items():
+        if k in ['region', 'country_code', 'state', 'city', 'postal_code'] and v:
+            query_filters[k] = v
+
+    # Fetch matching rows and extract unique users
+    matching_rows = raw_table.search(q.fetch_only('user'), **query_filters)
+    
+    user_list = list({row['user'] for row in matching_rows if row.get('user')})
+    return user_list if user_list else ['Unknown User']
