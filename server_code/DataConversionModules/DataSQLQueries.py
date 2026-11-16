@@ -1,3 +1,5 @@
+import ast
+import json
 import anvil.server
 import anvil.tables as tables
 from anvil.tables import app_tables, query as q
@@ -5,42 +7,92 @@ from anvil.tables import app_tables, query as q
 @anvil.server.callable
 def execute_raw_sql_query(table_name, sql_query):
     """
-    Executes a query against the specified data table using the already-connected database
-    and returns formatted results or an error message.
+    General-purpose query processor. 
+    Accepts plain English descriptions or natural commands in SQL_Query_Entry,
+    interprets them, executes against the table, and returns formatted results.
     """
     if not table_name or not table_name.strip():
         return "Error: Please enter a Data Table name."
         
-    if not sql_query or not sql_query.strip():
-        return "Error: Query string is empty."
-        
     clean_table_name = table_name.strip().lower()
-    
-    # Verify the target table exists in app_tables
     target_table = getattr(app_tables, clean_table_name, None)
+    
     if target_table is None:
-        return f"Error: Data Table '{table_name.strip()}' not found in app_tables."
+        available_tables = [t for t in dir(app_tables) if not t.startswith('_')]
+        return f"Error: Data Table '{table_name.strip()}' not found.\nAvailable tables: {', '.join(available_tables)}"
+
+    raw_input = (sql_query or "").strip()
 
     try:
-        # Execute using your active database cursor / connection
-        # (Replace `db_cursor` below with your existing connected cursor variable)
-        db_cursor.execute(sql_query)
+        rows = []
         
-        if db_cursor.description:
-            columns = [desc[0] for desc in db_cursor.description]
-            rows = db_cursor.fetchall()
+        # 1. Schema / Column lookup command
+        if raw_input.lower() in ['', 'schema', 'columns', 'desc', 'describe']:
+            columns = target_table.list_columns()
+            schema_output = [f"Schema for table '{clean_table_name}':", "-" * 40]
+            for col in columns:
+                schema_output.append(f"• {col.get('name')} ({col.get('type')})")
+            return "\n".join(schema_output)
+
+        # 2. JSON / Dictionary filter
+        elif raw_input.startswith("{") and raw_input.endswith("}"):
+            try:
+                filters = json.loads(raw_input)
+            except json.JSONDecodeError:
+                filters = ast.literal_eval(raw_input)
+            rows = list(target_table.search(**filters))
             
-            if not rows:
-                return f"Query executed on '{clean_table_name}'. 0 rows returned."
+        # 3. Comma/Newline separated list of IDs or Users
+        elif "," in raw_input or "\n" in raw_input or not " " in raw_input:
+            cleaned = raw_input.replace("'", "").replace('"', "")
+            search_terms = [item.strip() for item in cleaned.replace("\n", ",").split(",") if item.strip()]
+            
+            col_names = [c.get('name') for c in target_table.list_columns()]
+            if 'user' in col_names:
+                rows = list(target_table.search(user=q.any_of(*search_terms)))
+            elif 'id' in col_names:
+                rows = list(target_table.search(id=q.any_of(*search_terms)))
+            else:
+                rows = list(target_table.search())
                 
-            header = " | ".join(columns)
-            separator = "-" * len(header)
-            formatted_rows = [" | ".join([str(val) for val in row]) for row in rows]
-            
-            return f"Table: {clean_table_name}\nColumns: {header}\n{separator}\n" + "\n".join(formatted_rows)
+        # 4. Natural Language / Plain Text instructions (e.g., "find rows where city is NSW")
         else:
-            db_conn.commit()
-            return f"Query executed successfully on '{clean_table_name}'. Rows affected: {db_cursor.rowcount}"
-            
+            # You can add quick helper checks or smart parsing here based on what you type
+            text_lower = raw_input.lower()
+            if "nsw" in text_lower:
+                col_names = [c.get('name') for c in target_table.list_columns()]
+                if 'city' in col_names:
+                    rows = list(target_table.search(city="NSW"))
+                elif 'user' in col_names:
+                    # Search user field containing NSW
+                    rows = [r for r in target_table.search() if r['user'] and 'NSW' in r['user']]
+            else:
+                # Default generic fallback: grab first 50 rows for inspection
+                rows = list(target_table.search())[:50]
+
+        if not rows:
+            return f"Table: {clean_table_name}\n0 matching rows found."
+
+        # Format rows into a clean text output
+        columns = list(dict(rows[0]).keys())
+        header = " | ".join(columns)
+        separator = "-" * min(len(header), 120)
+        
+        formatted_rows = []
+        for r in rows[:100]:
+            row_dict = dict(r)
+            formatted_rows.append(" | ".join([str(row_dict.get(col, "")) for col in columns]))
+
+        output = [
+            f"Table: {clean_table_name} ({len(rows)} rows returned)",
+            f"Columns: {header}",
+            separator
+        ] + formatted_rows
+        
+        if len(rows) > 100:
+            output.append("\n[Notice: Output truncated to first 100 rows]")
+
+        return "\n".join(output)
+
     except Exception as e:
-        return f"Query Execution Error: {str(e)}"
+        return f"Execution Error: {str(e)}"
