@@ -36,16 +36,32 @@ class DataConversions(DataConversionsTemplate):
         except Exception as e:
             alert(f"Error starting postal code harvest: {e}", title="Error")
 
-    def SQL_Query_click(self, **event_args):
-        """Triggered when 'SQL Query' button is clicked."""
-        try:
-            print("Executing table count query...")
-            count = anvil.server.call('get_table_count')
-            if hasattr(self, 'SQL_Reply'):
-                self.SQL_Reply.text = f"Total records found: {count}"
-            alert(f"Total records found: {count}", title="SQL Query Result")
-        except Exception as e:
-            alert(f"Query error: {e}", title="Error")
+    def Sql_query_button_click(self, **event_args):
+            """Sends the Data Table name and SQL query to the server and displays the reply in SQL_Reply."""
+            table_name = self.Data_Table.text
+            query_text = self.SQL_Query_Entry.text
+        
+            if not table_name or not table_name.strip():
+                self.SQL_Reply.text = "Error: Please enter a Data Table name."
+                return
+
+            if not query_text or not query_text.strip():
+                self.SQL_Reply.text = "Error: Please enter a SQL query before clicking execute."
+                return
+
+            try:
+                self.SQL_Reply.text = f"Executing query on '{table_name.strip()}'..."
+            
+                response = anvil.server.call(
+                    'execute_raw_sql_query', 
+                    table_name=table_name,
+                    sql_query=query_text
+                )
+            
+                self.SQL_Reply.text = str(response)
+                
+            except Exception as e:
+                self.SQL_Reply.text = f"Client Error: {str(e)}"
 
     def Harvest_Address_click(self, **event_args):
         """Triggered when 'Harvest Address' button is clicked."""

@@ -81,6 +81,7 @@ class MapEntry(MapEntryTemplate):
 
             saved_id = anvil.server.call(
                 'save_map_item', 
+                None,
                 record_data, 
                 use_test_table=self.use_test_table
             )
@@ -201,11 +202,19 @@ class MapEntry(MapEntryTemplate):
       
             def make_click_handler(cluster_title, keys):
                 def marker_click_handler(sender, **event_args):
+                    # Check if cluster is at region, country, or state level (restricted)
+                    if not keys.get('city') and not keys.get('postal_code'):
+                        alert(
+                            content=f"{cluster_title}\n\nRegional, country, and state clusters contain too many records to list individually.\n\nPlease zoom in to the City or Postal Code level to view user lists.",
+                            title="Cluster Overview",
+                            large=False
+                        )
+                        return
+
                     current_page = 1
-                    page_size = 100  # 100 users per page
+                    page_size = 100
                     
                     while True:
-                        # Fetch the requested page dynamically from the server
                         response = anvil.server.call(
                             'get_users_for_cluster', 
                             cluster_keys=keys, 
@@ -214,12 +223,18 @@ class MapEntry(MapEntryTemplate):
                             use_test_table=self.use_test_table
                         )
                         
+                        if response.get('restricted'):
+                            alert(
+                                content="Please zoom in to the City or Postal Code level to view user lists.",
+                                title="Cluster Overview"
+                            )
+                            break
+
                         users = response.get('users', ['Unknown User'])
                         total_count = response.get('total_count', 0)
                         current_page = response.get('page', 1)
                         total_pages = response.get('total_pages', 1)
                         
-                        # Calculate exact start/end slice indices for display text
                         start_idx = ((current_page - 1) * page_size) + 1 if total_count > 0 else 0
                         end_idx = min(current_page * page_size, total_count)
               

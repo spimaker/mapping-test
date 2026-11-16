@@ -134,7 +134,6 @@ def get_map_markers_with_privacy_view(active_record_id=None, show_actuals=True, 
 def get_clustered_map_markers(cluster_type='region', distance_value=None, distance_unit='miles', active_record_id=None, use_test_table=False, bounds=None, zoom_level=None):
     cluster_type = (cluster_type or 'region').lower()
 
-    # --- 1. Administrative Grouping via Pre-Aggregated Summary Tables ---
     if cluster_type in ['country', 'state', 'city', 'region', 'postal code', 'postal']:
         if cluster_type == 'region' or (zoom_level is not None and zoom_level < 4):
             table = app_tables.map_region_summary
@@ -197,7 +196,6 @@ def get_clustered_map_markers(cluster_type='region', distance_value=None, distan
             })
         return markers
 
-    # --- 2. Radial Distance Grouping ---
     elif cluster_type in ['miles', 'kilometers', 'mi', 'km']:
         raw_table = get_target_table(use_test_table)
         all_items = list(raw_table.search(q.fetch_only('latitude', 'longitude', 'user', 'user_name')))
@@ -463,24 +461,25 @@ def geocode_address(address_query):
 @anvil.server.callable
 def get_users_for_cluster(cluster_keys, page=1, page_size=100, use_test_table=False):
     """
-    Optimized to compute unique users lightning-fast without locking the server.
+    Restricted to City and Postal Code level clusters only.
+    Macro levels (country, state, region) return a guidance notice instead of querying massive row sets.
     """
+    if not cluster_keys.get('city') and not cluster_keys.get('postal_code'):
+        return {
+            'users': [],
+            'total_count': 0,
+            'page': 1,
+            'total_pages': 1,
+            'restricted': True
+        }
+
     lookup_table = app_tables.map_user_lookup
     
     query_filters = {}
     for k, v in cluster_keys.items():
-        if k in ['region', 'country_code', 'state', 'city', 'postal_code'] and v:
+        if k in ['country_code', 'state', 'city', 'postal_code'] and v:
             query_filters[k] = v
 
-    if not query_filters:
-        return {
-            'users': ['Unknown User'],
-            'total_count': 1,
-            'page': 1,
-            'total_pages': 1
-        }
-
-    # Stream unique usernames directly via set comprehension
     matching_rows = lookup_table.search(q.fetch_only('user'), **query_filters)
     unique_users = sorted(list({row['user'] for row in matching_rows if row.get('user')}))
     total_count = len(unique_users)
@@ -490,7 +489,8 @@ def get_users_for_cluster(cluster_keys, page=1, page_size=100, use_test_table=Fa
             'users': ['Unknown User'],
             'total_count': 0,
             'page': 1,
-            'total_pages': 1
+            'total_pages': 1,
+            'restricted': False
         }
 
     total_pages = max(1, math.ceil(total_count / page_size))
@@ -505,5 +505,6 @@ def get_users_for_cluster(cluster_keys, page=1, page_size=100, use_test_table=Fa
         'users': paginated_users,
         'total_count': total_count,
         'page': page,
-        'total_pages': total_pages
+        'total_pages': total_pages,
+        'restricted': False
     }
