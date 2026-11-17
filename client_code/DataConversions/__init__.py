@@ -135,8 +135,13 @@ class DataConversions(DataConversionsTemplate):
             except Exception as e:
                 alert(content=f"Error launching background task: {e}", title="Error", large=False)
 
+    
     @anvil.handle("Get_local_data", "click")
     def get_local_data_click(self, **event_args):
       """This method is called when the button is clicked"""
-      task = anvil.server.call('start_data_generation_task')
-      pass  # Write Code Here
+      task = anvil.server.call(
+        'start_data_generation_task',
+        start_country="CA",
+        start_state_code="NU",
+        clear_tables=False
+      )

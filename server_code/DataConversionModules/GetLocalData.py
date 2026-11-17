@@ -26,7 +26,6 @@ def clean_postal_code(country_code, pcode):
     return ""
   pcode = str(pcode).strip()
   if country_code.upper() == "US":
-    # Split out any hyphenated extension (e.g., 38310-2204 -> 38310)
     if "-" in pcode:
       pcode = pcode.split("-")[0].strip()
     elif " " in pcode:
@@ -39,7 +38,7 @@ def clean_postal_code(country_code, pcode):
 
 
 # ---------------------------------------------------------
-# STEP 1: Clear All Target Tables
+# STEP 1: Clear All Target Tables (Optional)
 # ---------------------------------------------------------
 @anvil.server.callable
 def clear_all_target_tables():
@@ -95,9 +94,11 @@ def fetch_postal_codes_for_city(country_code, state_code, city_name):
         formatted_pcode = clean_postal_code(country_code, raw_pcode)
         if formatted_pcode:
           postcodes.add(formatted_pcode)
+    time.sleep(3)  # 3-second polite wait after Overpass query
     return list(postcodes)
   except Exception as e:
     print(f"    [Warning] Error fetching postal codes for {city_name}, {state_code}: {e}")
+    time.sleep(3)
     return []
 
 
@@ -106,7 +107,6 @@ def fetch_postal_codes_for_city(country_code, state_code, city_name):
 # ---------------------------------------------------------
 def fetch_addresses_for_postal_code(country_code, state_code, city_name, postal_code):
   """Query Overpass API for addresses within a postal code."""
-  # Ensure postal code is strictly cleaned before querying Overpass/Nominatim
   postal_code = clean_postal_code(country_code, postal_code)
 
   nominatim_url = "https://nominatim.openstreetmap.org/search"
@@ -129,8 +129,10 @@ def fetch_addresses_for_postal_code(country_code, state_code, city_name, postal_
       if raw_bbox and len(raw_bbox) == 4:
         south, north, west, east = raw_bbox
         bbox = f"{south},{west},{north},{east}"
+    time.sleep(3)  # 3-second polite wait after Nominatim query
   except Exception as e:
     print(f"      [Warning] Nominatim bbox lookup failed for {postal_code}: {e}")
+    time.sleep(3)
 
   if not bbox:
     return []
@@ -165,9 +167,11 @@ def fetch_addresses_for_postal_code(country_code, state_code, city_name, postal_
             "lat": float(lat),
             "lon": float(lon)
           })
+    time.sleep(3)  # 3-second polite wait after Overpass address query
     return valid_elements
   except Exception as e:
     print(f"      [Warning] Overpass address query failed for {postal_code}: {e}")
+    time.sleep(3)
     return []
 
 
@@ -272,23 +276,36 @@ def rebuild_user_lookup():
 
 
 # ---------------------------------------------------------
-# MASTER ORCHESTRATOR BACKGROUND TASK
+# MASTER ORCHESTRATOR BACKGROUND TASK (WITH RESUME SUPPORT)
 # ---------------------------------------------------------
 @anvil.server.background_task
-def run_full_data_generation_pipeline():
+def run_full_data_generation_pipeline(start_country="US", start_state_code=None, clear_tables=False):
   print("==================================================")
-  print("=== STARTING GET LOCAL DATA PIPELINE (US, CA, MX) ===")
+  print(f"=== STARTING PIPELINE (Resume from Country: {start_country}, State: {start_state_code}) ===")
   print("==================================================")
 
-  clear_all_target_tables()
+  if clear_tables:
+    clear_all_target_tables()
+  else:
+    print("[INFO] clear_tables=False. Preserving existing data in tables.")
 
   now = datetime.datetime.now()
   total_addresses_added = 0
+
+  skip_country = True if start_country else False
+  skip_state = True if start_state_code else False
 
   for country_info in TARGET_COUNTRIES:
     c_code = country_info["code"]
     c_name = country_info["name"]
     region = country_info["region"]
+
+    if skip_country:
+      if c_code == start_country:
+        skip_country = False
+      else:
+        print(f" -> Skipping country {c_name} ({c_code}) as requested.")
+        continue
 
     print(f"\n--------------------------------------------------")
     print(f"Processing Country: {c_name} ({c_code})")
@@ -304,6 +321,14 @@ def run_full_data_generation_pipeline():
       for state in states:
         state_code = state.iso_code
         state_name = state.name
+
+        if skip_state:
+          if state_code == start_state_code:
+            skip_state = False
+            print(f" -> Resuming at state: {state_name} ({state_code})")
+          else:
+            print(f"   -> Skipping state {state_name} ({state_code})...")
+            continue
 
         print(f"\n   [State] {state_name} ({state_code})")
         cities = City.get_cities_of_state(c_code, state_code)
@@ -324,7 +349,6 @@ def run_full_data_generation_pipeline():
           postcodes = fetch_postal_codes_for_city(c_code, state_code, city_name)
           if not postcodes or len(postcodes) < 1:
             print(f"         -> No postal codes retrieved. Skipping.")
-            time.sleep(1)
             continue
 
           max_s_pc = min(10, len(postcodes))
@@ -349,7 +373,6 @@ def run_full_data_generation_pipeline():
             raw_addresses = fetch_addresses_for_postal_code(c_code, state_code, city_name, clean_pcode)
             if len(raw_addresses) < 10:
               print(f"            -> Postal code {clean_pcode}: Found only {len(raw_addresses)} addresses (< 10). Skipping.")
-              time.sleep(1)
               continue
 
             max_s_addr = min(25, len(raw_addresses))
@@ -385,11 +408,10 @@ def run_full_data_generation_pipeline():
               total_addresses_added += 1
 
             print(f"            -> Postal code {clean_pcode}: Added {added_in_pcode} addresses.")
-            time.sleep(1)
     except Exception as e:
       print(f"[Error] Processing country {c_code} failed: {e}")
 
-  print(f"\nTotal new addresses generated: {total_addresses_added}")
+  print(f"\nTotal new addresses generated in this run: {total_addresses_added}")
 
   update_all_summaries()
   rebuild_user_lookup()
@@ -400,8 +422,13 @@ def run_full_data_generation_pipeline():
 
 
 @anvil.server.callable
-def start_data_generation_task():
-  print("Launching background task for data generation...")
-  task = anvil.server.launch_background_task("run_full_data_generation_pipeline")
+def start_data_generation_task(start_country="US", start_state_code=None, clear_tables=False):
+  print(f"Launching background task starting at Country: {start_country}, State: {start_state_code}, Clear: {clear_tables}...")
+  task = anvil.server.launch_background_task(
+    "run_full_data_generation_pipeline",
+    start_country=start_country,
+    start_state_code=start_state_code,
+    clear_tables=clear_tables
+  )
   print(f"Background task launched successfully. Task ID: {task.get_id()}")
   return task
