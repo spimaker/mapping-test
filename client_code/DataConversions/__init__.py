@@ -1,4 +1,5 @@
 from ._anvil_designer import DataConversionsTemplate
+import anvil
 import anvil.server
 import anvil.tables as tables
 import anvil.tables.query as q
@@ -133,3 +134,9 @@ class DataConversions(DataConversionsTemplate):
             
             except Exception as e:
                 alert(content=f"Error launching background task: {e}", title="Error", large=False)
+
+    @anvil.handle("Get_local_data", "click")
+    def get_local_data_click(self, **event_args):
+      """This method is called when the button is clicked"""
+      task = anvil.server.call('start_data_generation_task')
+      pass  # Write Code Here

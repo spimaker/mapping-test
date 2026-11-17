@@ -1,0 +1,409 @@
+import datetime
+import random
+import uuid
+import time
+import requests
+import anvil.server
+import anvil.tables as tables
+from anvil.tables import app_tables, query as q
+from country_state_city import Country, State, City
+from geopy.geocoders import Nominatim
+
+# Initialize Nominatim geolocator
+geolocator = Nominatim(user_agent="GetLocalDataHarvester/1.0")
+
+TARGET_COUNTRIES = [
+  {"code": "US", "name": "United States", "region": "North America"},
+  {"code": "CA", "name": "Canada", "region": "North America"},
+  {"code": "MX", "name": "Mexico", "region": "North America"}
+]
+
+# ---------------------------------------------------------
+# STEP 1: Clear All Target Tables
+# ---------------------------------------------------------
+@anvil.server.callable
+def clear_all_target_tables():
+  """Clears all specified tables completely with console updates."""
+  tables_to_clear = [
+    ("mapitems_test", app_tables.mapitems_test),
+    ("map_region_summary", app_tables.map_region_summary),
+    ("map_country_summary", app_tables.map_country_summary),
+    ("map_state_summary", app_tables.map_state_summary),
+    ("map_city_summary", app_tables.map_city_summary),
+    ("map_postal_summary", app_tables.map_postal_summary),
+    ("map_user_lookup", app_tables.map_user_lookup),
+    ("datahub_postal_codes", app_tables.datahub_postal_codes)
+  ]
+
+  print("\n[STEP 1/6] Clearing target tables...")
+  for t_name, t_obj in tables_to_clear:
+    rows = list(t_obj.search())
+    count = len(rows)
+    print(f" -> Clearing {count} records from '{t_name}'...")
+    for row in rows:
+      row.delete()
+  print("[STEP 1/6] All target tables cleared successfully.\n")
+
+
+# ---------------------------------------------------------
+# STEP 2: Get Postal Codes & Populate Datahub_postal_codes
+# ---------------------------------------------------------
+def fetch_postal_codes_for_city(country_code, state_code, city_name):
+  """Query Overpass API for postal codes within a specific city/state/country."""
+  overpass_url = "https://overpass.openstreetmap.fr/api/interpreter"
+  headers = {"User-Agent": "GetLocalDataHarvester/1.0"}
+
+  query = f"""
+    [out:json][timeout:25];
+    area["ISO3166-1"="{country_code}"]->.searchArea;
+    (
+      node(area.searchArea)["addr:city"="{city_name}"]["addr:postcode"];
+      way(area.searchArea)["addr:city"="{city_name}"]["addr:postcode"];
+    );
+    out tags;
+    """
+  try:
+    response = requests.post(overpass_url, data={"data": query}, headers=headers, timeout=30)
+    response.raise_for_status()
+    data = response.json()
+
+    postcodes = set()
+    for element in data.get("elements", []):
+      tags = element.get("tags", {})
+      pcode = tags.get("addr:postcode") or tags.get("postal_code")
+      if pcode:
+        postcodes.add(pcode.strip())
+    return list(postcodes)
+  except Exception as e:
+    print(f"    [Warning] Error fetching postal codes for {city_name}, {state_code}: {e}")
+    return []
+
+
+# ---------------------------------------------------------
+# STEPS 3 & 4: Get Addresses and Write to MapItems_Test
+# ---------------------------------------------------------
+def fetch_addresses_for_postal_code(country_code, state_code, city_name, postal_code):
+  """Query Overpass API for addresses within a postal code."""
+  nominatim_url = "https://nominatim.openstreetmap.org/search"
+  overpass_url = "https://overpass.openstreetmap.fr/api/interpreter"
+  headers = {"User-Agent": "GetLocalDataHarvester/1.0"}
+
+  bbox = None
+  try:
+    nom_params = {
+      "postalcode": postal_code,
+      "country": country_code,
+      "format": "json",
+      "limit": 1
+    }
+    nom_res = requests.get(nominatim_url, params=nom_params, headers=headers, timeout=10)
+    nom_res.raise_for_status()
+    nom_data = nom_res.json()
+    if nom_data and len(nom_data) > 0:
+      raw_bbox = nom_data[0].get("boundingbox")
+      if raw_bbox and len(raw_bbox) == 4:
+        south, north, west, east = raw_bbox
+        bbox = f"{south},{west},{north},{east}"
+  except Exception as e:
+    print(f"      [Warning] Nominatim bbox lookup failed for {postal_code}: {e}")
+
+  if not bbox:
+    return []
+
+  query = f"""
+    [out:json][timeout:35];
+    (
+      node["addr:postcode"="{postal_code}"]["addr:street"]["addr:housenumber"]({bbox});
+      way["addr:postcode"="{postal_code}"]["addr:street"]["addr:housenumber"]({bbox});
+    );
+    out center tags;
+    """
+
+  try:
+    response = requests.post(overpass_url, data={"data": query}, headers=headers, timeout=40)
+    response.raise_for_status()
+    data = response.json()
+
+    valid_elements = []
+    for element in data.get("elements", []):
+      tags = element.get("tags", {})
+      house_no = tags.get("addr:housenumber")
+      street = tags.get("addr:street")
+      lat = element.get("lat") or element.get("center", {}).get("lat")
+      lon = element.get("lon") or element.get("center", {}).get("lon")
+
+      if house_no and street and lat and lon:
+        address_1 = f"{house_no} {street}"
+        # Validate mandatory fields
+        if country_code and state_code and city_name and address_1 and postal_code:
+          valid_elements.append({
+            "address_1": address_1,
+            "lat": float(lat),
+            "lon": float(lon)
+          })
+    return valid_elements
+  except Exception as e:
+    print(f"      [Warning] Overpass address query failed for {postal_code}: {e}")
+    return []
+
+
+# ---------------------------------------------------------
+# STEP 5: Summary Table Updates
+# ---------------------------------------------------------
+def update_all_summaries():
+  """Recalculates and updates all summary tiers based on MapItems_Test with console logging."""
+  print("\n[STEP 5/6] Updating summary tables (Region, Country, State, City, Postal)...")
+  raw_rows = list(app_tables.mapitems_test.search())
+
+  regions = set(r.get('region') for r in raw_rows if r.get('region'))
+  countries = set(r.get('country_code') for r in raw_rows if r.get('country_code'))
+  states = set((r.get('country_code'), r.get('state')) for r in raw_rows if r.get('country_code') and r.get('state'))
+  cities = set((r.get('country_code'), r.get('state'), r.get('city')) for r in raw_rows if r.get('country_code') and r.get('state') and r.get('city'))
+  postals = set((r.get('country_code'), r.get('postal_code')) for r in raw_rows if r.get('country_code') and r.get('postal_code'))
+
+  # Clear existing summaries
+  summary_tables = [
+    (app_tables.map_region_summary, "map_region_summary"),
+    (app_tables.map_country_summary, "map_country_summary"),
+    (app_tables.map_state_summary, "map_state_summary"),
+    (app_tables.map_city_summary, "map_city_summary"),
+    (app_tables.map_postal_summary, "map_postal_summary")
+  ]
+
+  for t_obj, t_name in summary_tables:
+    rows = list(t_obj.search())
+    for row in rows:
+      row.delete()
+    print(f" -> Cleared old summaries for {t_name}")
+
+    # Update Region summaries
+  for reg in regions:
+    subset = [r for r in raw_rows if r.get('region') == reg]
+    _write_summary_tier(app_tables.map_region_summary, {'region': reg}, subset)
+  print(f" -> Updated {len(regions)} region summary rows.")
+
+  # Update Country summaries
+  for c_code in countries:
+    subset = [r for r in raw_rows if r.get('country_code') == c_code]
+    _write_summary_tier(app_tables.map_country_summary, {'country_code': c_code}, subset)
+  print(f" -> Updated {len(countries)} country summary rows.")
+
+  # Update State summaries
+  for c_code, st_code in states:
+    subset = [r for r in raw_rows if r.get('country_code') == c_code and r.get('state') == st_code]
+    _write_summary_tier(app_tables.map_state_summary, {'country_code': c_code, 'state': st_code}, subset)
+  print(f" -> Updated {len(states)} state summary rows.")
+
+  # Update City summaries
+  for c_code, st_code, ct_name in cities:
+    subset = [r for r in raw_rows if r.get('country_code') == c_code and r.get('state') == st_code and r.get('city') == ct_name]
+    _write_summary_tier(app_tables.map_city_summary, {'country_code': c_code, 'state': st_code, 'city': ct_name}, subset)
+  print(f" -> Updated {len(cities)} city summary rows.")
+
+  # Update Postal summaries
+  for c_code, p_code in postals:
+    subset = [r for r in raw_rows if r.get('country_code') == c_code and r.get('postal_code') == p_code]
+    _write_summary_tier(app_tables.map_postal_summary, {'country_code': c_code, 'postal_code': p_code}, subset)
+  print(f" -> Updated {len(postals)} postal summary rows.")
+  print("[STEP 5/6] Summary tables update complete.\n")
+
+
+def _write_summary_tier(summary_table, query_dict, subset):
+  if not subset:
+    return
+  lats = [float(r['latitude']) for r in subset if r.get('latitude') is not None]
+  lons = [float(r['longitude']) for r in subset if r.get('longitude') is not None]
+  users = set(r.get('user') for r in subset if r.get('user'))
+
+  if not lats or not lons:
+    return
+
+  metrics = {
+    'center_lat': sum(lats) / len(lats),
+    'center_lon': sum(lons) / len(lons),
+    'min_lat': min(lats),
+    'max_lat': max(lats),
+    'min_lon': min(lons),
+    'max_lon': max(lons),
+    'user_count': len(users)
+  }
+  summary_table.add_row(**query_dict, **metrics)
+
+
+# ---------------------------------------------------------
+# STEP 6: Update Map_user_lookup
+# ---------------------------------------------------------
+def rebuild_user_lookup():
+  """Rebuilds Map_user_lookup from MapItems_Test with console updates."""
+  print("[STEP 6/6] Rebuilding Map_user_lookup table...")
+  lookup_rows = list(app_tables.map_user_lookup.search())
+  for row in lookup_rows:
+    row.delete()
+
+  item_rows = list(app_tables.mapitems_test.search())
+  count = 0
+  for item in item_rows:
+    app_tables.map_user_lookup.add_row(
+      id=item.get('id'),
+      user=item.get('user'),
+      region=item.get('region'),
+      country_code=item.get('country_code'),
+      state=item.get('state'),
+      city=item.get('city'),
+      postal_code=item.get('postal_code')
+    )
+    count += 1
+  print(f" -> Added {count} lookup records to Map_user_lookup.")
+  print("[STEP 6/6] Map_user_lookup rebuild complete.\n")
+
+
+# ---------------------------------------------------------
+# MASTER ORCHESTRATOR BACKGROUND TASK
+# ---------------------------------------------------------
+@anvil.server.background_task
+def run_full_data_generation_pipeline():
+  print("==================================================")
+  print("=== STARTING GET LOCAL DATA PIPELINE (US, CA, MX) ===")
+  print("==================================================")
+
+  # Step 1: Clear tables
+  clear_all_target_tables()
+
+  now = datetime.datetime.now()
+  total_addresses_added = 0
+
+  for country_info in TARGET_COUNTRIES:
+    c_code = country_info["code"]
+    c_name = country_info["name"]
+    region = country_info["region"]
+
+    print(f"\n--------------------------------------------------")
+    print(f"Processing Country: {c_name} ({c_code})")
+    print(f"--------------------------------------------------")
+
+    try:
+      states = State.get_states_of_country(c_code)
+      if not states:
+        print(f" -> No states found for {c_code}. Skipping.")
+        continue
+
+        # Select random 5 to 10 states/provinces
+      sample_state_count = random.randint(5, min(10, len(states)))
+      selected_states = random.sample(states, sample_state_count)
+      print(f" -> Selected {sample_state_count} random states/provinces out of {len(states)} available.")
+
+      for state in selected_states:
+        state_code = state.iso_code
+        state_name = state.name
+
+        print(f"\n   [State] {state_name} ({state_code})")
+        cities = City.get_cities_of_state(c_code, state_code)
+        if not cities:
+          print(f"      -> No cities found for {state_name}. Skipping.")
+          continue
+
+          # Select random 5 to 10 cities
+        sample_city_count = random.randint(5, min(10, len(cities)))
+        selected_cities = random.sample(cities, sample_city_count)
+        print(f"      -> Selected {sample_city_count} random cities out of {len(cities)} available.")
+
+        for city in selected_cities:
+          city_name = city.name
+          print(f"\n      -> [City] {city_name}")
+
+          # Step 2: Get postal codes and write to Datahub_postal_codes
+          postcodes = fetch_postal_codes_for_city(c_code, state_code, city_name)
+          if not postcodes:
+            print(f"         -> No postal codes retrieved for {city_name}. Skipping.")
+            time.sleep(1)
+            continue
+
+            # Select random 5 to 10 postal codes
+          sample_pcode_count = random.randint(5, min(10, len(postcodes)))
+          selected_postcodes = random.sample(postcodes, sample_pcode_count)
+          print(f"         -> Harvested & sampled {sample_pcode_count} postal codes.")
+
+          for pcode in selected_postcodes:
+            # Save to Datahub_postal_codes if not exists
+            existing_pcode = app_tables.datahub_postal_codes.get(Country_Code=c_code, Postal_Code=pcode)
+            if not existing_pcode:
+              app_tables.datahub_postal_codes.add_row(
+                Country_Code=c_code,
+                State_Code=state_code,
+                Postal_Code=pcode
+              )
+
+              # Steps 3 & 4: Get addresses and write to MapItems_Test
+            raw_addresses = fetch_addresses_for_postal_code(c_code, state_code, city_name, pcode)
+            if len(raw_addresses) < 10:
+              print(f"            -> Postal code {pcode}: Found only {len(raw_addresses)} addresses (< 10 required). Skipping.")
+              time.sleep(1)
+              continue
+
+            sample_addr_count = random.randint(10, min(25, len(raw_addresses)))
+            sampled_addresses = random.sample(raw_addresses, sample_addr_count)
+
+            added_in_pcode = 0
+            for addr in sampled_addresses:
+              item_id = str(uuid.uuid4())
+              address_1 = addr["address_1"]
+              address_2 = ""
+              lat = addr["lat"]
+              lon = addr["lon"]
+
+              # Validation rule: Reject if any mandatory field is missing
+              if not (c_code and state_name and city_name and address_1 and pcode):
+                continue
+
+              user_handle = f"{c_code}/{state_code}/{city_name}/{pcode}/{address_1}"
+              formatted_addr = f"{user_handle}/{address_1}/{city_name}, {state_code} {pcode}/{c_name}"
+
+              # Random date and time within the last 120 days
+              random_days_ago = random.uniform(0, 120)
+              random_dt = now - datetime.timedelta(days=random_days_ago)
+
+              app_tables.mapitems_test.add_row(
+                id=item_id,
+                user=user_handle,
+                date_time=random_dt,
+                created_time=now,
+                region=region,
+                country_code=c_code,
+                country_name=c_name,
+                state=state_code,
+                state_name=state_name,
+                city=city_name,
+                address_1=address_1,
+                address_2=address_2,
+                postal_code=pcode,
+                formatted_address=formatted_addr,
+                latitude=lat,
+                longitude=lon
+              )
+              added_in_pcode += 1
+              total_addresses_added += 1
+
+            print(f"            -> Postal code {pcode}: Added {added_in_pcode} valid addresses to MapItems_Test.")
+            time.sleep(1) # Polite pause for Overpass API
+    except Exception as e:
+      print(f"[Error] Processing country {c_code} failed: {e}")
+
+  print(f"\nTotal new addresses generated across all countries: {total_addresses_added}")
+
+  # Step 5: Update Summary Tables
+  update_all_summaries()
+
+  # Step 6: Update Map_user_lookup
+  rebuild_user_lookup()
+
+  print("==================================================")
+  print("=== GET LOCAL DATA PIPELINE COMPLETE SUCCESSFULLY ===")
+  print("==================================================")
+
+
+@anvil.server.callable
+def start_data_generation_task():
+  print("Launching background task for data generation...")
+  task = anvil.server.launch_background_task("run_full_data_generation_pipeline")
+  print(f"Background task launched successfully. Task ID: {task.get_id()}")
+  return task
