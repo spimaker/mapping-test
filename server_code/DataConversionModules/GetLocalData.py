@@ -65,114 +65,126 @@ def clear_all_target_tables():
 
 
 # ---------------------------------------------------------
-# STEP 2: Get Postal Codes & Populate Datahub_postal_codes
+# STEP 2: Get Postal Codes & Populate Datahub_postal_codes (With Retries)
 # ---------------------------------------------------------
 def fetch_postal_codes_for_city(country_code, state_code, city_name):
-  """Query Overpass API for postal codes within a specific city/state/country."""
-  overpass_url = "https://overpass.openstreetmap.fr/api/interpreter"
+  """Query Overpass API for postal codes with timeout protection and automatic retries."""
+  overpass_urls = [
+    "https://overpass.openstreetmap.fr/api/interpreter",
+    "https://overpass-api.de/api/interpreter"
+  ]
   headers = {"User-Agent": "GetLocalDataHarvester/1.0"}
 
-  query = f"""
-    [out:json][timeout:25];
-    area["ISO3166-1"="{country_code}"]->.searchArea;
-    (
-      node(area.searchArea)["addr:city"="{city_name}"]["addr:postcode"];
-      way(area.searchArea)["addr:city"="{city_name}"]["addr:postcode"];
-    );
-    out tags;
-    """
-  try:
-    response = requests.post(overpass_url, data={"data": query}, headers=headers, timeout=30)
-    response.raise_for_status()
-    data = response.json()
+  query = (
+    '[out:json][timeout:50];'
+    f'area["ISO3166-1"="{country_code}"]->.searchArea;'
+    '('
+    f'  node(area.searchArea)["addr:city"="{city_name}"]["addr:postcode"];'
+    f'  way(area.searchArea)["addr:city"="{city_name}"]["addr:postcode"];'
+    ');'
+    'out tags;'
+  )
 
-    postcodes = set()
-    for element in data.get("elements", []):
-      tags = element.get("tags", {})
-      raw_pcode = tags.get("addr:postcode") or tags.get("postal_code")
-      if raw_pcode:
-        formatted_pcode = clean_postal_code(country_code, raw_pcode)
-        if formatted_pcode:
-          postcodes.add(formatted_pcode)
-    time.sleep(3)  # 3-second polite wait after Overpass query
-    return list(postcodes)
-  except Exception as e:
-    print(f"    [Warning] Error fetching postal codes for {city_name}, {state_code}: {e}")
-    time.sleep(3)
-    return []
+  for attempt in range(3):
+    for overpass_url in overpass_urls:
+      try:
+        response = requests.post(overpass_url, data={"data": query}, headers=headers, timeout=55)
+        response.raise_for_status()
+        data = response.json()
+
+        postcodes = set()
+        for element in data.get("elements", []):
+          tags = element.get("tags", {})
+          raw_pcode = tags.get("addr:postcode") or tags.get("postal_code")
+          if raw_pcode:
+            formatted_pcode = clean_postal_code(country_code, raw_pcode)
+            if formatted_pcode:
+              postcodes.add(formatted_pcode)
+        time.sleep(3)
+        return list(postcodes)
+      except Exception:
+        time.sleep(5)
+
+  print(f"    [Warning] Failed to fetch postal codes for {city_name}, {state_code} after retries.")
+  return []
 
 
 # ---------------------------------------------------------
-# STEPS 3 & 4: Get Addresses and Write to MapItems_Test
+# STEPS 3 & 4: Get Addresses and Write to MapItems_Test (With Retries)
 # ---------------------------------------------------------
 def fetch_addresses_for_postal_code(country_code, state_code, city_name, postal_code):
-  """Query Overpass API for addresses within a postal code."""
+  """Query Overpass API for addresses with timeout protection and automatic retries."""
   postal_code = clean_postal_code(country_code, postal_code)
 
   nominatim_url = "https://nominatim.openstreetmap.org/search"
-  overpass_url = "https://overpass.openstreetmap.fr/api/interpreter"
+  overpass_urls = [
+    "https://overpass.openstreetmap.fr/api/interpreter",
+    "https://overpass-api.de/api/interpreter"
+  ]
   headers = {"User-Agent": "GetLocalDataHarvester/1.0"}
 
   bbox = None
-  try:
-    nom_params = {
-      "postalcode": postal_code,
-      "country": country_code,
-      "format": "json",
-      "limit": 1
-    }
-    nom_res = requests.get(nominatim_url, params=nom_params, headers=headers, timeout=10)
-    nom_res.raise_for_status()
-    nom_data = nom_res.json()
-    if nom_data and len(nom_data) > 0:
-      raw_bbox = nom_data[0].get("boundingbox")
-      if raw_bbox and len(raw_bbox) == 4:
-        south, north, west, east = raw_bbox
-        bbox = f"{south},{west},{north},{east}"
-    time.sleep(3)  # 3-second polite wait after Nominatim query
-  except Exception as e:
-    print(f"      [Warning] Nominatim bbox lookup failed for {postal_code}: {e}")
-    time.sleep(3)
+  for attempt in range(2):
+    try:
+      nom_params = {
+        "postalcode": postal_code,
+        "country": country_code,
+        "format": "json",
+        "limit": 1
+      }
+      nom_res = requests.get(nominatim_url, params=nom_params, headers=headers, timeout=15)
+      nom_res.raise_for_status()
+      nom_data = nom_res.json()
+      if nom_data and len(nom_data) > 0:
+        raw_bbox = nom_data[0].get("boundingbox")
+        if raw_bbox and len(raw_bbox) == 4:
+          south, north, west, east = raw_bbox
+          bbox = f"{south},{west},{north},{east}"
+          break
+    except Exception:
+      time.sleep(3)
 
   if not bbox:
     return []
 
-  query = f"""
-    [out:json][timeout:35];
-    (
-      node["addr:postcode"="{postal_code}"]["addr:street"]["addr:housenumber"]({bbox});
-      way["addr:postcode"="{postal_code}"]["addr:street"]["addr:housenumber"]({bbox});
-    );
-    out center tags;
-    """
+  query = (
+    '[out:json][timeout:50];'
+    '('
+    f'  node["addr:postcode"="{postal_code}"]["addr:street"]["addr:housenumber"]({bbox});'
+    f'  way["addr:postcode"="{postal_code}"]["addr:street"]["addr:housenumber"]({bbox});'
+    ');'
+    'out center tags;'
+  )
 
-  try:
-    response = requests.post(overpass_url, data={"data": query}, headers=headers, timeout=40)
-    response.raise_for_status()
-    data = response.json()
+  for attempt in range(3):
+    for overpass_url in overpass_urls:
+      try:
+        response = requests.post(overpass_url, data={"data": query}, headers=headers, timeout=55)
+        response.raise_for_status()
+        data = response.json()
 
-    valid_elements = []
-    for element in data.get("elements", []):
-      tags = element.get("tags", {})
-      house_no = tags.get("addr:housenumber")
-      street = tags.get("addr:street")
-      lat = element.get("lat") or element.get("center", {}).get("lat")
-      lon = element.get("lon") or element.get("center", {}).get("lon")
+        valid_elements = []
+        for element in data.get("elements", []):
+          tags = element.get("tags", {})
+          house_no = tags.get("addr:housenumber")
+          street = tags.get("addr:street")
+          lat = element.get("lat") or element.get("center", {}).get("lat")
+          lon = element.get("lon") or element.get("center", {}).get("lon")
 
-      if house_no and street and lat and lon:
-        address_1 = f"{house_no} {street}"
-        if country_code and state_code and city_name and address_1 and postal_code:
-          valid_elements.append({
-            "address_1": address_1,
-            "lat": float(lat),
-            "lon": float(lon)
-          })
-    time.sleep(3)  # 3-second polite wait after Overpass address query
-    return valid_elements
-  except Exception as e:
-    print(f"      [Warning] Overpass address query failed for {postal_code}: {e}")
-    time.sleep(3)
-    return []
+          if house_no and street and lat and lon:
+            address_1 = f"{house_no} {street}"
+            if country_code and state_code and city_name and address_1 and postal_code:
+              valid_elements.append({
+                "address_1": address_1,
+                "lat": float(lat),
+                "lon": float(lon)
+              })
+        time.sleep(3)
+        return valid_elements
+      except Exception:
+        time.sleep(5)
+
+  return []
 
 
 # ---------------------------------------------------------
