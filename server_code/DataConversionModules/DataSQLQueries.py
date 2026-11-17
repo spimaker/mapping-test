@@ -55,20 +55,24 @@ def execute_raw_sql_query(table_name, sql_query):
             else:
                 rows = list(target_table.search())
                 
-        # 4. Natural Language / Plain Text instructions (e.g., "find rows where city is NSW")
+        # 4. Natural Language / Plain Text instructions
         else:
-            # You can add quick helper checks or smart parsing here based on what you type
             text_lower = raw_input.lower()
-            if "nsw" in text_lower:
+            
+            # Check for count / total record requests using len() on the search iterator
+            if any(phrase in text_lower for phrase in ["how many", "count", "total", "number of"]):
+                total_count = len(target_table.search())
+                return f"Table: {clean_table_name}\nTotal records: {total_count}"
+                
+            elif "nsw" in text_lower:
                 col_names = [c.get('name') for c in target_table.list_columns()]
                 if 'city' in col_names:
                     rows = list(target_table.search(city="NSW"))
                 elif 'user' in col_names:
-                    # Search user field containing NSW
                     rows = [r for r in target_table.search() if r['user'] and 'NSW' in r['user']]
             else:
-                # Default generic fallback: grab first 50 rows for inspection
-                rows = list(target_table.search())[:50]
+                # Default generic fallback: grab all rows
+                rows = list(target_table.search())
 
         if not rows:
             return f"Table: {clean_table_name}\n0 matching rows found."
@@ -93,6 +97,6 @@ def execute_raw_sql_query(table_name, sql_query):
             output.append("\n[Notice: Output truncated to first 100 rows]")
 
         return "\n".join(output)
-
+        
     except Exception as e:
         return f"Execution Error: {str(e)}"

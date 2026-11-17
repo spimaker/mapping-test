@@ -138,10 +138,10 @@ class DataConversions(DataConversionsTemplate):
     
     @anvil.handle("Get_local_data", "click")
     def get_local_data_click(self, **event_args):
-      """This method is called when the button is clicked"""
+      """This method is called when the button is clicked to start fresh harvesting."""
       task = anvil.server.call(
         'start_data_generation_task',
-        start_country="CA",
-        start_state_code="QC",
-        clear_tables=False
+        start_country="US",
+        start_state_code=None,
+        clear_tables=True
       )

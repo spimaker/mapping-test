@@ -38,7 +38,7 @@ def clean_postal_code(country_code, pcode):
 
 
 # ---------------------------------------------------------
-# STEP 1: Clear All Target Tables (Optional)
+# STEP 1: Clear All Target Tables
 # ---------------------------------------------------------
 @anvil.server.callable
 def clear_all_target_tables():
@@ -110,7 +110,7 @@ def fetch_postal_codes_for_city(country_code, state_code, city_name):
 
 
 # ---------------------------------------------------------
-# STEPS 3 & 4: Get Addresses and Write to MapItems_Test (With Retries)
+# STEPS 3 & 4: Get Addresses and Write to MapItems_Test (Up to 50 max)
 # ---------------------------------------------------------
 def fetch_addresses_for_postal_code(country_code, state_code, city_name, postal_code):
   """Query Overpass API for addresses with timeout protection and automatic retries."""
@@ -288,18 +288,18 @@ def rebuild_user_lookup():
 
 
 # ---------------------------------------------------------
-# MASTER ORCHESTRATOR BACKGROUND TASK (WITH RESUME SUPPORT)
+# MASTER ORCHESTRATOR BACKGROUND TASK (UP TO 50 ADDRESSES MAX)
 # ---------------------------------------------------------
 @anvil.server.background_task
-def run_full_data_generation_pipeline(start_country="US", start_state_code=None, clear_tables=False):
+def run_full_data_generation_pipeline(start_country="US", start_state_code=None, clear_tables=True):
   print("==================================================")
-  print(f"=== STARTING PIPELINE (Resume from Country: {start_country}, State: {start_state_code}) ===")
+  print(f"=== STARTING PIPELINE (Clear Tables: {clear_tables}) ===")
   print("==================================================")
 
   if clear_tables:
     clear_all_target_tables()
   else:
-    print("[INFO] clear_tables=False. Preserving existing data in tables.")
+    print("[INFO] clear_tables=False.")
 
   now = datetime.datetime.now()
   total_addresses_added = 0
@@ -383,17 +383,14 @@ def run_full_data_generation_pipeline(start_country="US", start_state_code=None,
               )
 
             raw_addresses = fetch_addresses_for_postal_code(c_code, state_code, city_name, clean_pcode)
-            if len(raw_addresses) < 10:
-              print(f"            -> Postal code {clean_pcode}: Found only {len(raw_addresses)} addresses (< 10). Skipping.")
+            if len(raw_addresses) < 1:
+              print(f"            -> Postal code {clean_pcode}: Found no valid addresses. Skipping.")
               continue
 
-            max_s_addr = min(25, len(raw_addresses))
-            min_s_addr = min(10, len(raw_addresses))
-            sample_addr_count = random.randint(min_s_addr, max_s_addr)
-            sampled_addresses = random.sample(raw_addresses, sample_addr_count)
+            addresses_to_add = raw_addresses[:50]
 
             added_in_pcode = 0
-            for addr in sampled_addresses:
+            for addr in addresses_to_add:
               user_handle = f"{c_code}/{state_code}/{city_name}/{clean_pcode}/{addr['address_1']}"
               formatted_addr = f"{user_handle}/{addr['address_1']}/{city_name}, {state_code} {clean_pcode}/{c_name}"
               random_days_ago = random.uniform(0, 120)
@@ -419,7 +416,7 @@ def run_full_data_generation_pipeline(start_country="US", start_state_code=None,
               added_in_pcode += 1
               total_addresses_added += 1
 
-            print(f"            -> Postal code {clean_pcode}: Added {added_in_pcode} addresses.")
+            print(f"            -> Postal code {clean_pcode}: Added {added_in_pcode} addresses (capped at 50).")
     except Exception as e:
       print(f"[Error] Processing country {c_code} failed: {e}")
 
@@ -434,7 +431,7 @@ def run_full_data_generation_pipeline(start_country="US", start_state_code=None,
 
 
 @anvil.server.callable
-def start_data_generation_task(start_country="US", start_state_code=None, clear_tables=False):
+def start_data_generation_task(start_country="US", start_state_code=None, clear_tables=True):
   print(f"Launching background task starting at Country: {start_country}, State: {start_state_code}, Clear: {clear_tables}...")
   task = anvil.server.launch_background_task(
     "run_full_data_generation_pipeline",
