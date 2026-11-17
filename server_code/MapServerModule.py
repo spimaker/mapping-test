@@ -93,7 +93,7 @@ def get_map_markers_with_privacy_view(active_record_id=None, show_actuals=True, 
         act_lon = row.get('longitude')
         off_lat = row.get('offset_latitude') or act_lat
         off_lon = row.get('offset_longitude') or act_lon
-        username = row.get('user') or row.get('user_name', 'Unknown User')
+        username = row.get('user') or row.get('user', 'Unknown User')
 
         is_latest = (record_id == active_record_id)
 
@@ -104,7 +104,7 @@ def get_map_markers_with_privacy_view(active_record_id=None, show_actuals=True, 
                     'lon': float(act_lon),
                     'color': '#FF0000',
                     'scale': 10,
-                    'user_name': username,
+                    'user': username,
                     'title': username
                 })
 
@@ -114,7 +114,7 @@ def get_map_markers_with_privacy_view(active_record_id=None, show_actuals=True, 
                     'lon': float(off_lon),
                     'color': '#008000',
                     'scale': 10,
-                    'user_name': username,
+                    'user': username,
                     'title': username
                 })
             else:
@@ -123,7 +123,7 @@ def get_map_markers_with_privacy_view(active_record_id=None, show_actuals=True, 
                     'lon': float(off_lon),
                     'color': '#ADD8E6',
                     'scale': 8,
-                    'user_name': username,
+                    'user': username,
                     'title': username
                 })
 
@@ -198,7 +198,7 @@ def get_clustered_map_markers(cluster_type='region', distance_value=None, distan
 
     elif cluster_type in ['miles', 'kilometers', 'mi', 'km']:
         raw_table = get_target_table(use_test_table)
-        all_items = list(raw_table.search(q.fetch_only('latitude', 'longitude', 'user', 'user_name')))
+        all_items = list(raw_table.search(q.fetch_only('latitude', 'longitude', 'user', 'user')))
         
         try:
             radius = float(distance_value or 10)
@@ -211,7 +211,7 @@ def get_clustered_map_markers(cluster_type='region', distance_value=None, distan
         for row in all_items:
             lat = row.get('latitude')
             lon = row.get('longitude')
-            username = row.get('user') or row.get('user_name', 'Unknown User')
+            username = row.get('user') or row.get('user', 'Unknown User')
             
             if lat is None or lon is None:
                 continue
@@ -268,7 +268,7 @@ def save_map_item(item_id, item_data, use_test_table=True):
     postal_code = (item_data.get('postal_code') or '').strip()
     address_1 = item_data.get('address_1')
     address_2 = item_data.get('address_2')
-    user_name = item_data.get('user') or item_data.get('user_name')
+    user = item_data.get('user') or item_data.get('user')
 
     region = item_data.get('region') or get_region_from_country_code(country)
     item_data['region'] = region
@@ -313,17 +313,17 @@ def save_map_item(item_id, item_data, use_test_table=True):
 
     if lat is not None and lon is not None:
         lat_f, lon_f = float(lat), float(lon)
-        update_summary_tier(app_tables.map_region_summary, {'region': region}, lat_f, lon_f, user_name, table, region=region)
-        update_summary_tier(app_tables.map_country_summary, {'country_code': country}, lat_f, lon_f, user_name, table, country_code=country)
-        update_summary_tier(app_tables.map_state_summary, {'country_code': country, 'state': state}, lat_f, lon_f, user_name, table, country_code=country, state=state)
-        update_summary_tier(app_tables.map_city_summary, {'country_code': country, 'state': state, 'city': city}, lat_f, lon_f, user_name, table, country_code=country, state=state, city=city)
-        update_summary_tier(app_tables.map_postal_summary, {'country_code': country, 'postal_code': postal_code}, lat_f, lon_f, user_name, table, country_code=country, postal_code=postal_code)
+        update_summary_tier(app_tables.map_region_summary, {'region': region}, lat_f, lon_f, user, table, region=region)
+        update_summary_tier(app_tables.map_country_summary, {'country_code': country}, lat_f, lon_f, user, table, country_code=country)
+        update_summary_tier(app_tables.map_state_summary, {'country_code': country, 'state': state}, lat_f, lon_f, user, table, country_code=country, state=state)
+        update_summary_tier(app_tables.map_city_summary, {'country_code': country, 'state': state, 'city': city}, lat_f, lon_f, user, table, country_code=country, state=state, city=city)
+        update_summary_tier(app_tables.map_postal_summary, {'country_code': country, 'postal_code': postal_code}, lat_f, lon_f, user, table, country_code=country, postal_code=postal_code)
 
     lookup_table = app_tables.map_user_lookup
     existing_lookup = lookup_table.get(id=generated_id)
     lookup_data = {
         'id': generated_id,
-        'user': user_name,
+        'user': user,
         'region': region,
         'country_code': country,
         'state': state,
@@ -350,7 +350,7 @@ def update_summary_tier(summary_table, query_dict, lat, lon, user, raw_table, **
 
     lats = [float(r['latitude']) for r in bucket_rows if r.get('latitude') is not None]
     lons = [float(r['longitude']) for r in bucket_rows if r.get('longitude') is not None]
-    users = set(r.get('user') or r.get('user_name') for r in bucket_rows if r.get('user') or r.get('user_name'))
+    users = set(r.get('user') or r.get('user') for r in bucket_rows if r.get('user') or r.get('user'))
 
     if not lats or not lons:
         return
