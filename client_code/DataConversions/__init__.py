@@ -47,7 +47,7 @@ class DataConversions(DataConversionsTemplate):
                 return
 
             if not query_text or not query_text.strip():
-                self.SQL_Reply.text = "Error: Please enter a SQL query before clicking execute."
+                self.SQL_Reply.text = "Error: Please enter a SQL query before executing."
                 return
 
             try:
@@ -93,32 +93,27 @@ class DataConversions(DataConversionsTemplate):
 
     def Build_summary_tables_click(self, **event_args):
             """Triggered when 'Build Summary Tables' button is clicked."""
-            # 1. Disable button and update status to prevent multiple rapid clicks
             self.Build_summary_tables.enabled = False
             if hasattr(self, 'status_label'):
                 self.status_label.text = "Processing records and building the 5 summary tables..."
         
             try:
-                # 2. Call the server-side migration function explicitly passing use_test_table
                 result_message = anvil.server.call(
                     'populate_all_map_summaries', 
                     use_test_table=self.use_test_table
                 )
             
-                # 3. Success feedback
                 if hasattr(self, 'status_label'):
                     self.status_label.text = result_message
                 anvil.alert(result_message, title="Migration Complete", large=False)
             
             except Exception as e:
-                # 4. Error handling feedback
                 error_msg = f"Migration failed: {str(e)}"
                 if hasattr(self, 'status_label'):
                     self.status_label.text = error_msg
                 anvil.alert(error_msg, title="Error", large=False)
             
             finally:
-                # 5. Re-enable the button
                 self.Build_summary_tables.enabled = True          
     
     def Build_map_user_lookup_click(self, **event_args):
@@ -126,7 +121,6 @@ class DataConversions(DataConversionsTemplate):
             try:
                 use_test = getattr(self, 'use_test_table', True)
             
-                # Launch background task and get immediate response
                 result_message = anvil.server.call(
                     'populate_map_user_lookup', 
                     use_test_table=use_test
@@ -137,13 +131,21 @@ class DataConversions(DataConversionsTemplate):
             except Exception as e:
                 alert(content=f"Error launching background task: {e}", title="Error", large=False)
 
-    
     @anvil.handle("Get_local_data", "click")
     def get_local_data_click(self, **event_args):
-      """This method is called when the button is clicked to start fresh harvesting."""
-      task = anvil.server.call(
-        'start_data_generation_task',
-        start_country="MX",
-        start_state_code="GUA",
-        clear_tables=False
-      )
+        """This method is called when the button is clicked to start fresh harvesting."""
+        task = anvil.server.call(
+            'start_data_generation_task',
+            start_country="MX",
+            start_state_code="GUA",
+            clear_tables=False
+        )
+
+    def button_harvest_north_america_click(self, **event_args):
+        """Triggered when the 'Harvest All US, CA, MX' button is clicked."""
+        try:
+            print("Launching full North American postal code harvest background task...")
+            task = anvil.server.call('start_full_north_america_harvest')
+            alert("Full US, CA, and MX postal code harvest started successfully in the background!", title="Background Task Launched")
+        except Exception as e:
+            alert(f"Error starting North American harvest: {e}", title="Error")
