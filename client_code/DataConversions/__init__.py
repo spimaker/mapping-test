@@ -142,6 +142,6 @@ class DataConversions(DataConversionsTemplate):
       task = anvil.server.call(
         'start_data_generation_task',
         start_country="CA",
-        start_state_code="BC",
+        start_state_code="NB",
         clear_tables=False
       )
