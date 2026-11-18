@@ -149,3 +149,12 @@ class DataConversions(DataConversionsTemplate):
             alert("Full US, CA, and MX postal code harvest started successfully in the background!", title="Background Task Launched")
         except Exception as e:
             alert(f"Error starting North American harvest: {e}", title="Error")
+
+    def audit_north_america_button_click(self, **event_args):
+            """Triggered when the audit/search button is clicked."""
+            try:
+                print("Launching North American DataHub background audit...")
+                task = anvil.server.call('start_north_america_datahub_audit')
+                alert("North American DataHub regional audit started successfully in the background!", title="Task Launched")
+            except Exception as e:
+                alert(f"Error starting audit: {e}", title="Error")          
