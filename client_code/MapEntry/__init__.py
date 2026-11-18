@@ -161,11 +161,19 @@ class MapEntry(MapEntryTemplate):
         cluster_type = cluster_type or 'region'
       
         bounds = None
+        zoom_level = None
+
         if hasattr(self.map_1, 'get_bounds'):
             try:
                 b = self.map_1.get_bounds()
                 if b:
                     bounds = {'north': b.north, 'south': b.south, 'east': b.east, 'west': b.west}
+            except Exception:
+                pass
+
+        if hasattr(self.map_1, 'zoom'):
+            try:
+                zoom_level = self.map_1.zoom
             except Exception:
                 pass
 
@@ -175,7 +183,8 @@ class MapEntry(MapEntryTemplate):
             distance_value=distance_value, 
             active_record_id=active_record_id,
             use_test_table=self.use_test_table,
-            bounds=bounds
+            bounds=bounds,
+            zoom_level=zoom_level
         )
       
         for m in markers:
@@ -263,7 +272,7 @@ class MapEntry(MapEntryTemplate):
             marker.set_event_handler('click', make_click_handler(title, cluster_keys))
             self.map_1.add_component(marker)
       
-        if markers:
+        if markers and not bounds:
             latest = markers[0]
             self.map_1.center = self.map_1.LatLng(latest['lat'], latest['lon'])
             self.map_1.zoom = 4

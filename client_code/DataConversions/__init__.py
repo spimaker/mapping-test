@@ -92,33 +92,35 @@ class DataConversions(DataConversionsTemplate):
             alert(f"Error starting table copy: {e}", title="Error")
 
     def Build_summary_tables_click(self, **event_args):
-        """Triggered when 'Build Summary Tables' button is clicked."""
-        # 1. Disable button and update status to prevent multiple rapid clicks
-        self.Build_summary_tables.enabled = False
-        if hasattr(self, 'status_label'):
-            self.status_label.text = "Processing records and building the 5 summary tables..."
+            """Triggered when 'Build Summary Tables' button is clicked."""
+            # 1. Disable button and update status to prevent multiple rapid clicks
+            self.Build_summary_tables.enabled = False
+            if hasattr(self, 'status_label'):
+                self.status_label.text = "Processing records and building the 5 summary tables..."
         
-        try:
-            # 2. Call the server-side migration function
-            result_message = anvil.server.call('populate_all_map_summaries')
+            try:
+                # 2. Call the server-side migration function explicitly passing use_test_table
+                result_message = anvil.server.call(
+                    'populate_all_map_summaries', 
+                    use_test_table=self.use_test_table
+                )
             
-            # 3. Success feedback
-            if hasattr(self, 'status_label'):
-                self.status_label.text = result_message
-            anvil.alert(result_message, title="Migration Complete", large=False)
+                # 3. Success feedback
+                if hasattr(self, 'status_label'):
+                    self.status_label.text = result_message
+                anvil.alert(result_message, title="Migration Complete", large=False)
             
-        except Exception as e:
-            # 4. Error handling feedback
-            error_msg = f"Migration failed: {str(e)}"
-            if hasattr(self, 'status_label'):
-                self.status_label.text = error_msg
-            anvil.alert(error_msg, title="Error", large=False)
+            except Exception as e:
+                # 4. Error handling feedback
+                error_msg = f"Migration failed: {str(e)}"
+                if hasattr(self, 'status_label'):
+                    self.status_label.text = error_msg
+                anvil.alert(error_msg, title="Error", large=False)
             
-        finally:
-            # 5. Re-enable the button
-            self.Build_summary_tables.enabled = True
-
-          
+            finally:
+                # 5. Re-enable the button
+                self.Build_summary_tables.enabled = True          
+    
     def Build_map_user_lookup_click(self, **event_args):
             """Triggered when the backfill button is clicked to launch the background task."""
             try:

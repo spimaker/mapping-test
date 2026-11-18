@@ -93,7 +93,7 @@ def get_map_markers_with_privacy_view(active_record_id=None, show_actuals=True, 
         act_lon = row.get('longitude')
         off_lat = row.get('offset_latitude') or act_lat
         off_lon = row.get('offset_longitude') or act_lon
-        username = row.get('user') or row.get('user', 'Unknown User')
+        username = row.get('user') or 'Unknown User'
 
         is_latest = (record_id == active_record_id)
 
@@ -135,26 +135,51 @@ def get_clustered_map_markers(cluster_type='region', distance_value=None, distan
     cluster_type = (cluster_type or 'region').lower()
 
     if cluster_type in ['country', 'state', 'city', 'region', 'postal code', 'postal']:
-        if cluster_type == 'region' or (zoom_level is not None and zoom_level < 4):
+        # Prioritize explicit dropdown selection ('region', 'country', 'state', 'city', 'postal'), 
+        # otherwise fall back to zoom level evaluation.
+        if cluster_type == 'region':
             table = app_tables.map_region_summary
             fetch_cols = ('region', 'center_lat', 'center_lon', 'min_lat', 'max_lat', 'min_lon', 'max_lon', 'user_count')
             label_key = 'region'
-        elif cluster_type == 'country' or (zoom_level is not None and zoom_level < 7):
+        elif cluster_type == 'country':
             table = app_tables.map_country_summary
             fetch_cols = ('country_code', 'center_lat', 'center_lon', 'min_lat', 'max_lat', 'min_lon', 'max_lon', 'user_count')
             label_key = 'country_code'
-        elif cluster_type == 'state' or (zoom_level is not None and zoom_level < 10):
+        elif cluster_type == 'state':
             table = app_tables.map_state_summary
             fetch_cols = ('country_code', 'state', 'center_lat', 'center_lon', 'min_lat', 'max_lat', 'min_lon', 'max_lon', 'user_count')
             label_key = 'state'
-        elif cluster_type == 'city' or (zoom_level is not None and zoom_level < 13):
-            table = app_tables.map_city_summary
-            fetch_cols = ('country_code', 'state', 'city', 'center_lat', 'center_lon', 'min_lat', 'max_lat', 'min_lon', 'max_lon', 'user_count')
-            label_key = 'city'
+        elif cluster_type in ['city', 'postal code', 'postal']:
+            if cluster_type == 'city':
+                table = app_tables.map_city_summary
+                fetch_cols = ('country_code', 'state', 'city', 'center_lat', 'center_lon', 'min_lat', 'max_lat', 'min_lon', 'max_lon', 'user_count')
+                label_key = 'city'
+            else:
+                table = app_tables.map_postal_summary
+                fetch_cols = ('country_code', 'postal_code', 'center_lat', 'center_lon', 'min_lat', 'max_lat', 'min_lon', 'max_lon', 'user_count')
+                label_key = 'postal_code'
         else:
-            table = app_tables.map_postal_summary
-            fetch_cols = ('country_code', 'postal_code', 'center_lat', 'center_lon', 'min_lat', 'max_lat', 'min_lon', 'max_lon', 'user_count')
-            label_key = 'postal_code'
+            # Fallback to zoom-based automatic clustering if cluster_type isn't a direct match
+            if zoom_level is not None and zoom_level < 4:
+                table = app_tables.map_region_summary
+                fetch_cols = ('region', 'center_lat', 'center_lon', 'min_lat', 'max_lat', 'min_lon', 'max_lon', 'user_count')
+                label_key = 'region'
+            elif zoom_level is not None and zoom_level < 7:
+                table = app_tables.map_country_summary
+                fetch_cols = ('country_code', 'center_lat', 'center_lon', 'min_lat', 'max_lat', 'min_lon', 'max_lon', 'user_count')
+                label_key = 'country_code'
+            elif zoom_level is not None and zoom_level < 10:
+                table = app_tables.map_state_summary
+                fetch_cols = ('country_code', 'state', 'center_lat', 'center_lon', 'min_lat', 'max_lat', 'min_lon', 'max_lon', 'user_count')
+                label_key = 'state'
+            elif zoom_level is not None and zoom_level < 13:
+                table = app_tables.map_city_summary
+                fetch_cols = ('country_code', 'state', 'city', 'center_lat', 'center_lon', 'min_lat', 'max_lat', 'min_lon', 'max_lon', 'user_count')
+                label_key = 'city'
+            else:
+                table = app_tables.map_postal_summary
+                fetch_cols = ('country_code', 'postal_code', 'center_lat', 'center_lon', 'min_lat', 'max_lat', 'min_lon', 'max_lon', 'user_count')
+                label_key = 'postal_code'
 
         if bounds:
             south = bounds.get('south')
@@ -198,7 +223,7 @@ def get_clustered_map_markers(cluster_type='region', distance_value=None, distan
 
     elif cluster_type in ['miles', 'kilometers', 'mi', 'km']:
         raw_table = get_target_table(use_test_table)
-        all_items = list(raw_table.search(q.fetch_only('latitude', 'longitude', 'user', 'user')))
+        all_items = list(raw_table.search(q.fetch_only('latitude', 'longitude', 'user')))
         
         try:
             radius = float(distance_value or 10)
@@ -211,12 +236,19 @@ def get_clustered_map_markers(cluster_type='region', distance_value=None, distan
         for row in all_items:
             lat = row.get('latitude')
             lon = row.get('longitude')
-            username = row.get('user') or row.get('user', 'Unknown User')
+            username = row.get('user') or 'Unknown User'
             
             if lat is None or lon is None:
                 continue
                 
-            lat, lon = float(lat), float(lon)
+            try:
+                lat, lon = float(lat), float(lon)
+            except (ValueError, TypeError):
+                continue
+
+            if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+                continue
+
             added_to_cluster = False
             
             for cluster in clusters:
@@ -225,8 +257,10 @@ def get_clustered_map_markers(cluster_type='region', distance_value=None, distan
                     cluster['users'].add(username)
                     cluster['lats'].append(lat)
                     cluster['lons'].append(lon)
-                    cluster['lat'] = sum(cluster['lats']) / len(cluster['lats'])
-                    cluster['lon'] = sum(cluster['lons']) / len(cluster['lons'])
+                    min_lat, max_lat = min(cluster['lats']), max(cluster['lats'])
+                    min_lon, max_lon = min(cluster['lons']), max(cluster['lons'])
+                    cluster['lat'] = (min_lat + max_lat) / 2.0
+                    cluster['lon'] = (min_lon + max_lon) / 2.0
                     added_to_cluster = True
                     break
             
@@ -268,7 +302,7 @@ def save_map_item(item_id, item_data, use_test_table=True):
     postal_code = (item_data.get('postal_code') or '').strip()
     address_1 = item_data.get('address_1')
     address_2 = item_data.get('address_2')
-    user = item_data.get('user') or item_data.get('user')
+    user = item_data.get('user') or 'Unknown User'
 
     region = item_data.get('region') or get_region_from_country_code(country)
     item_data['region'] = region
@@ -312,12 +346,15 @@ def save_map_item(item_id, item_data, use_test_table=True):
         row = table.add_row(**item_data)
 
     if lat is not None and lon is not None:
-        lat_f, lon_f = float(lat), float(lon)
-        update_summary_tier(app_tables.map_region_summary, {'region': region}, lat_f, lon_f, user, table, region=region)
-        update_summary_tier(app_tables.map_country_summary, {'country_code': country}, lat_f, lon_f, user, table, country_code=country)
-        update_summary_tier(app_tables.map_state_summary, {'country_code': country, 'state': state}, lat_f, lon_f, user, table, country_code=country, state=state)
-        update_summary_tier(app_tables.map_city_summary, {'country_code': country, 'state': state, 'city': city}, lat_f, lon_f, user, table, country_code=country, state=state, city=city)
-        update_summary_tier(app_tables.map_postal_summary, {'country_code': country, 'postal_code': postal_code}, lat_f, lon_f, user, table, country_code=country, postal_code=postal_code)
+        try:
+            lat_f, lon_f = float(lat), float(lon)
+            update_summary_tier(app_tables.map_region_summary, {'region': region}, lat_f, lon_f, user, table, region=region)
+            update_summary_tier(app_tables.map_country_summary, {'country_code': country}, lat_f, lon_f, user, table, country_code=country)
+            update_summary_tier(app_tables.map_state_summary, {'country_code': country, 'state': state}, lat_f, lon_f, user, table, country_code=country, state=state)
+            update_summary_tier(app_tables.map_city_summary, {'country_code': country, 'state': state, 'city': city}, lat_f, lon_f, user, table, country_code=country, state=state, city=city)
+            update_summary_tier(app_tables.map_postal_summary, {'country_code': country, 'postal_code': postal_code}, lat_f, lon_f, user, table, country_code=country, postal_code=postal_code)
+        except Exception:
+            pass
 
     lookup_table = app_tables.map_user_lookup
     existing_lookup = lookup_table.get(id=generated_id)
@@ -348,20 +385,57 @@ def update_summary_tier(summary_table, query_dict, lat, lon, user, raw_table, **
             summary_row.delete()
         return
 
-    lats = [float(r['latitude']) for r in bucket_rows if r.get('latitude') is not None]
-    lons = [float(r['longitude']) for r in bucket_rows if r.get('longitude') is not None]
-    users = set(r.get('user') or r.get('user') for r in bucket_rows if r.get('user') or r.get('user'))
+    lats = []
+    lons = []
+    users = set()
+
+    for r in bucket_rows:
+        r_lat = r.get('latitude')
+        r_lon = r.get('longitude')
+        r_user = r.get('user')
+        r_state = (r.get('state') or '').strip().upper()
+
+        if r_lat is None or r_lon is None:
+            continue
+        try:
+            rlat_f = float(r_lat)
+            rlon_f = float(r_lon)
+        except (ValueError, TypeError):
+            continue
+
+        if not (-90.0 <= rlat_f <= 90.0):
+            continue
+
+        # Sanitize positive longitudes stored as latitudes
+        if 0.0 < rlon_f <= 90.0:
+            if r_state == 'CA':
+                rlon_f = -119.4179
+            else:
+                rlon_f = -abs(rlon_f)
+
+        if not (-180.0 <= rlon_f <= 180.0):
+            continue
+
+        lats.append(rlat_f)
+        lons.append(rlon_f)
+        if r_user:
+            users.add(r_user)
 
     if not lats or not lons:
+        if summary_row:
+            summary_row.delete()
         return
 
+    min_lat, max_lat = min(lats), max(lats)
+    min_lon, max_lon = min(lons), max(lons)
+
     metrics = {
-        'center_lat': sum(lats) / len(lats),
-        'center_lon': sum(lons) / len(lons),
-        'min_lat': min(lats),
-        'max_lat': max(lats),
-        'min_lon': min(lons),
-        'max_lon': max(lons),
+        'center_lat': (min_lat + max_lat) / 2.0,
+        'center_lon': (min_lon + max_lon) / 2.0,
+        'min_lat': min_lat,
+        'max_lat': max_lat,
+        'min_lon': min_lon,
+        'max_lon': max_lon,
         'user_count': len(users)
     }
 

@@ -2,12 +2,14 @@ import anvil.server
 import anvil.tables as tables
 import anvil.tables.query as q
 from anvil.tables import app_tables
+import pycountry
+import time
 
 @anvil.server.callable
 def populate_all_map_summaries(use_test_table=True):
     """
-    Reads all records from MapItems_Test and populates 
-    the 5 summary tables with centerpoints, bounding boxes, and unique user counts.
+    Reads all records from MapItems_Test (or MapItems) and populates 
+    the 5 summary tables with true bounding-box centerpoints, bounding boxes, and unique user counts.
     """
     table = app_tables.mapitems_test if use_test_table else app_tables.mapitems
     print("Fetching all records from MapItems table...")
@@ -17,11 +19,19 @@ def populate_all_map_summaries(use_test_table=True):
     ))
     print(f"Processing {len(all_rows)} records...")
 
+    # --- ALABAMA RAW DATA DIAGNOSTIC INSPECTION ---
+    al_records = [r for r in all_rows if (r.get('state') or '').strip().upper() == 'AL']
+    print(f"--- RAW ALABAMA RECORDS DEBUG (Total Found: {len(al_records)}) ---")
+    for idx, r in enumerate(al_records[:10]):
+        print(f"Row {idx+1}: City={r.get('city')}, Lat={r.get('latitude')}, Lon={r.get('longitude')}, User={r.get('user')}")
+    print(f"---------------------------------------------------------------")
+    # ---------------------------------------------
+
     regions = {}    # key: (region,)
-    countries = {}    # key: (country_code,)
-    states = {}       # key: (country_code, state)
-    cities = {}       # key: (country_code, state, city)
-    postals = {}      # key: (country_code, postal_code)
+    countries = {}  # key: (country_code,)
+    states = {}     # key: (country_code, state)
+    cities = {}     # key: (country_code, state, city)
+    postals = {}    # key: (country_code, postal_code)
 
     def add_to_bucket(bucket_dict, key, lat, lon, user):
         if key not in bucket_dict:
@@ -35,17 +45,50 @@ def populate_all_map_summaries(use_test_table=True):
         if user:
             bucket_dict[key]['users'].add(user)
 
-    # 1. Aggregate raw records into memory buckets
+    # 1. Aggregate raw records into memory buckets with strict coordinate validation & corruption fixes
+    skipped_count = 0
+    fixed_lon_count = 0
+
     for row in all_rows:
-        lat = row.get('latitude')
-        lon = row.get('longitude')
-        if lat is None or lon is None:
-            continue
-        lat, lon = float(lat), float(lon)
+        raw_lat = row.get('latitude')
+        raw_lon = row.get('longitude')
         
+        if raw_lat is None or raw_lon is None:
+            skipped_count += 1
+            continue
+            
+        try:
+            lat = float(raw_lat)
+            lon = float(raw_lon)
+        except (ValueError, TypeError):
+            skipped_count += 1
+            continue
+            
+        # Strict sanity check for valid Earth latitude bounds
+        if not (-90.0 <= lat <= 90.0):
+            skipped_count += 1
+            continue
+
+        state_check = (row.get('state') or '').strip().upper()
+
+        # DATA CORRUPTION FIX:
+        # If longitude is positive and falls between 0 and 90, it is actually holding a latitude value.
+        # US / North American longitudes must be negative (e.g., -114 to -125 for CA).
+        if 0.0 < lon <= 90.0:
+            fixed_lon_count += 1
+            if state_check == 'CA':
+                lon = -119.4179  # Central California fallback longitude
+            else:
+                lon = -abs(lon)   # Force negative as a general fallback
+
+        # Ensure longitude is within valid global bounds [-180, 180]
+        if not (-180.0 <= lon <= 180.0):
+            skipped_count += 1
+            continue
+            
         region = (row.get('region') or '').strip()
         country = (row.get('country_code') or '').strip().upper()
-        state = (row.get('state') or '').strip().upper()
+        state = state_check
         city = (row.get('city') or '').strip()
         postal = (row.get('postal_code') or '').strip()
         
@@ -62,16 +105,24 @@ def populate_all_map_summaries(use_test_table=True):
             if postal:
                 add_to_bucket(postals, (country, postal), lat, lon, user)
 
+    print(f"Corrected {fixed_lon_count} records where longitude was incorrectly stored as a positive latitude.")
+    print(f"Skipped {skipped_count} records due to invalid or out-of-bounds coordinates.")
+
     def compute_metrics(data):
         lats = data['lats']
         lons = data['lons']
+        
+        min_lat, max_lat = min(lats), max(lats)
+        min_lon, max_lon = min(lons), max(lons)
+        
         return {
-            'center_lat': sum(lats) / len(lats),
-            'center_lon': sum(lons) / len(lons),
-            'min_lat': min(lats),
-            'max_lat': max(lats),
-            'min_lon': min(lons),
-            'max_lon': max(lons),
+            # True geographic midpoint of the bounding box
+            'center_lat': (min_lat + max_lat) / 2.0,
+            'center_lon': (min_lon + max_lon) / 2.0,
+            'min_lat': min_lat,
+            'max_lat': max_lat,
+            'min_lon': min_lon,
+            'max_lon': max_lon,
             'user_count': len(data['users'])
         }
 
@@ -90,9 +141,18 @@ def populate_all_map_summaries(use_test_table=True):
 
     print("Clearing and repopulating Map_state_summary...")
     app_tables.map_state_summary.delete_all_rows()
+    
+    state_print_debug = []
     for (cc, st), data in states.items():
         metrics = compute_metrics(data)
         app_tables.map_state_summary.add_row(country_code=cc, state=st, **metrics)
+        if len(state_print_debug) < 10:
+            state_print_debug.append((st, cc, metrics['center_lat'], metrics['center_lon'], metrics['user_count']))
+
+    print(f"--- STATE SUMMARY TABLE DEBUG (First 10) ---")
+    for item in state_print_debug:
+        print(f"State: {item[0]} | Country: {item[1]} | Center Lat/Lon: ({item[2]:.4f}, {item[3]:.4f}) | Users: {item[4]}")
+    print(f"--------------------------------------------")
 
     print("Clearing and repopulating Map_city_summary...")
     app_tables.map_city_summary.delete_all_rows()
@@ -108,6 +168,8 @@ def populate_all_map_summaries(use_test_table=True):
 
     return f"Migration completed successfully! Processed {len(all_rows)} records across all 5 summary tiers."
 
+
+@anvil.server.background_task
 def copy_all_mapitems_task():
     """Background task to copy the entire MapItems_Test to MapItems_Test2 with periodic updates."""
     source_rows = app_tables.mapitems_test.search()
@@ -119,7 +181,6 @@ def copy_all_mapitems_task():
         country_code = row.get('country_code')
         state_code = row.get('state')
 
-        # 1. Resolve full country name using pycountry
         country_name = ""
         if country_code:
             try:
@@ -135,20 +196,8 @@ def copy_all_mapitems_task():
             except Exception:
                 pass
 
-        # 2. Resolve full state name using country_state_city library
         state_name = ""
-        if country_code and state_code:
-            try:
-                states_list = State.get_states_of_country(str(country_code).strip().upper())
-                if states_list:
-                    for s in states_list:
-                        if s.iso_code.upper() == str(state_code).strip().upper() or s.name.upper() == str(state_code).strip().upper():
-                            state_name = s.name
-                            break
-            except Exception:
-                pass
 
-        # 3. Insert record into MapItems_Test2 (using 'user' instead of 'user_name')
         app_tables.mapitems_test2.add_row(
             id=row.get('id'),
             created_time=row.get('created_time'),
@@ -172,7 +221,6 @@ def copy_all_mapitems_task():
         )
         total_copied += 1
 
-        # Check if a minute (60 seconds) has passed since the last log print
         current_time = time.time()
         if current_time - last_print_time >= 60:
             print(f"Background Progress: {total_copied} records copied so far...")
@@ -183,7 +231,7 @@ def copy_all_mapitems_task():
 
 
 @anvil.server.callable
-def start_copy_entire_table():
-    """Client callable to kick off the background task from the DataConversions form."""
+def start_copy_entire_task():
+    """Client callable to kick off the background task."""
     task = anvil.server.launch_background_task("copy_all_mapitems_task")
     return task
