@@ -141,7 +141,7 @@ class DataConversions(DataConversionsTemplate):
       """This method is called when the button is clicked to start fresh harvesting."""
       task = anvil.server.call(
         'start_data_generation_task',
-        start_country="US",
+        start_country="",
         start_state_code=None,
         clear_tables=True
       )
