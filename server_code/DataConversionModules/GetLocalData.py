@@ -5,51 +5,49 @@ import requests
 import anvil.server
 import anvil.tables as tables
 from anvil.tables import app_tables, query as q
-from country_state_city import Country, State, City
 from geopy.geocoders import Nominatim
 
 # Initialize Nominatim geolocator
 geolocator = Nominatim(user_agent="GetLocalDataHarvester/1.0")
 
-TARGET_COUNTRIES = [
-    {"code": "US", "name": "United States", "region": "North America"},
-    {"code": "CA", "name": "Canada", "region": "North America"},
-    {"code": "MX", "name": "Mexico", "region": "North America"}
+# Explicit list of all specified target cities with country, state, and region metadata
+TARGET_CITIES_LIST = [
+    # Canada
+    {"country_code": "CA", "state_code": "QC", "state_name": "Quebec", "city_name": "Montreal", "region": "North America", "country_name": "Canada"},
+    {"country_code": "CA", "state_code": "QC", "state_name": "Quebec", "city_name": "Quebec City", "region": "North America", "country_name": "Canada"},
+    {"country_code": "CA", "state_code": "ON", "state_name": "Ontario", "city_name": "Toronto", "region": "North America", "country_name": "Canada"},
+    {"country_code": "CA", "state_code": "ON", "state_name": "Ontario", "city_name": "Ottawa", "region": "North America", "country_name": "Canada"},
+    {"country_code": "CA", "state_code": "ON", "state_name": "Ontario", "city_name": "Hamilton", "region": "North America", "country_name": "Canada"},
+    
+    # Mexico
+    {"country_code": "MX", "state_code": "CMX", "state_name": "Ciudad de México", "city_name": "Mexico City", "region": "North America", "country_name": "Mexico"},
+    {"country_code": "MX", "state_code": "JAL", "state_name": "Jalisco", "city_name": "Guadalajara", "region": "North America", "country_name": "Mexico"},
+    {"country_code": "MX", "state_code": "NLE", "state_name": "Nuevo León", "city_name": "Monterrey", "region": "North America", "country_name": "Mexico"},
+    {"country_code": "MX", "state_code": "BCN", "state_name": "Baja California", "city_name": "Tijuana", "region": "North America", "country_name": "Mexico"},
+    {"country_code": "MX", "state_code": "GUA", "state_name": "Guanajuato", "city_name": "Leon", "region": "North America", "country_name": "Mexico"},
+    {"country_code": "MX", "state_code": "GUA", "state_name": "Guanajuato", "city_name": "San Miguel de Allende", "region": "North America", "country_name": "Mexico"},
+    {"country_code": "MX", "state_code": "CHH", "state_name": "Chihuahua", "city_name": "Ciudad Juarez", "region": "North America", "country_name": "Mexico"},
+    
+    # United States
+    {"country_code": "US", "state_code": "CA", "state_name": "California", "city_name": "Los Angeles", "region": "North America", "country_name": "United States"},
+    {"country_code": "US", "state_code": "CA", "state_name": "California", "city_name": "San Francisco", "region": "North America", "country_name": "United States"},
+    {"country_code": "US", "state_code": "AZ", "state_name": "Arizona", "city_name": "Phoenix", "region": "North America", "country_name": "United States"},
+    {"country_code": "US", "state_code": "TX", "state_name": "Texas", "city_name": "Houston", "region": "North America", "country_name": "United States"},
+    {"country_code": "US", "state_code": "TX", "state_name": "Texas", "city_name": "Dallas", "region": "North America", "country_name": "United States"},
+    {"country_code": "US", "state_code": "MO", "state_name": "Missouri", "city_name": "St. Louis", "region": "North America", "country_name": "United States"},
+    {"country_code": "US", "state_code": "MO", "state_name": "Missouri", "city_name": "Kansas City", "region": "North America", "country_name": "United States"},
+    {"country_code": "US", "state_code": "IL", "state_name": "Illinois", "city_name": "Chicago", "region": "North America", "country_name": "United States"},
+    {"country_code": "US", "state_code": "MA", "state_name": "Massachusetts", "city_name": "Boston", "region": "North America", "country_name": "United States"},
+    {"country_code": "US", "state_code": "PA", "state_name": "Pennsylvania", "city_name": "Philadelphia", "region": "North America", "country_name": "United States"},
+    {"country_code": "US", "state_code": "NY", "state_name": "New York", "city_name": "New York", "region": "North America", "country_name": "United States"}
 ]
 
-# Targeted cities mapping by country and state code
-TARGET_CITIES_MAP = {
-    "CA": {
-        "QC": ["Montreal", "Quebec City"],
-        "ON": ["Toronto", "Ottawa", "Hamilton"]
-    },
-    "MX": {
-        "CMX": ["Mexico City"],
-        "DIF": ["Mexico City"],
-        "MEX": ["Mexico City"],
-        "JAL": ["Guadalajara"],
-        "NLE": ["Monterrey"],
-        "BCN": ["Tijuana"],
-        "GUA": ["Leon", "San Miguel de Allende"],
-        "CHH": ["Ciudad Juarez"]
-    },
-    "US": {
-        "CA": ["Los Angeles", "San Francisco"],
-        "AZ": ["Phoenix"],
-        "TX": ["Houston", "Dallas"],
-        "MO": ["St. Louis", "Kansas City"],
-        "IL": ["Chicago"],
-        "MA": ["Boston"],
-        "PA": ["Philadelphia"],
-        "NY": ["New York"]
-    }
-}
 
 # ---------------------------------------------------------
-# HELPER: Format Postal Code
+# HELPER: Format Postal Code (Strict 5-digit for US)
 # ---------------------------------------------------------
 def clean_postal_code(country_code, pcode):
-    """Ensures US postal codes are 5 digits and trims international codes."""
+    """Ensures US postal codes are strictly 5 digits (stripping +4 extensions and hyphens)."""
     if not pcode:
         return ""
     pcode = str(pcode).strip()
@@ -101,7 +99,6 @@ def fetch_postal_codes_for_city(country_code, state_name, city_name):
     headers = {"User-Agent": "GetLocalDataHarvester/1.0"}
     postcodes = set()
     
-    # Tier 1: Freeform query (Most reliable for international & Mexican cities)
     queries = [
         f"{city_name}, {state_name}, {country_code}",
         f"{city_name}, {country_code}"
@@ -113,7 +110,7 @@ def fetch_postal_codes_for_city(country_code, state_name, city_name):
                 "q": q_str,
                 "format": "json",
                 "addressdetails": 1,
-                "limit": 40
+                "limit": 50
             }
             response = requests.get(nominatim_url, params=params, headers=headers, timeout=20)
             response.raise_for_status()
@@ -317,9 +314,9 @@ def rebuild_user_lookup():
 # MASTER ORCHESTRATOR BACKGROUND TASK
 # ---------------------------------------------------------
 @anvil.server.background_task
-def run_full_data_generation_pipeline(start_country=None, start_state_code=None, clear_tables=True, **kwargs):
+def run_full_data_generation_pipeline(clear_tables=True, **kwargs):
     print("==================================================")
-    print(f"=== STARTING TARGETED PIPELINE (Clear Tables: {clear_tables}) ===")
+    print(f"=== STARTING TARGETED CITY PIPELINE (Clear Tables: {clear_tables}) ===")
     print("==================================================")
     
     if clear_tables:
@@ -330,118 +327,85 @@ def run_full_data_generation_pipeline(start_country=None, start_state_code=None,
     now = datetime.datetime.now()
     total_addresses_added = 0
     
-    skip_country = True if start_country else False
-    skip_state = True if start_state_code else False
-    
-    for country_info in TARGET_COUNTRIES:
-        c_code = country_info["code"]
-        c_name = country_info["name"]
-        region = country_info["region"]
-        
-        if skip_country:
-            if c_code == start_country:
-                skip_country = False
-            else:
-                print(f" -> Skipping country {c_name} ({c_code}) as requested.")
-                continue
+    for city_entry in TARGET_CITIES_LIST:
+        c_code = city_entry["country_code"]
+        c_name = city_entry["country_name"]
+        region = city_entry["region"]
+        state_code = city_entry["state_code"]
+        state_name = city_entry["state_name"]
+        city_name = city_entry["city_name"]
         
         print(f"\n--------------------------------------------------")
-        print(f"Processing Country: {c_name} ({c_code})")
+        print(f"Processing City: {city_name}, {state_name} ({c_name})")
         print(f"--------------------------------------------------")
         
         try:
-            states = State.get_states_of_country(c_code)
-            if not states:
+            postcodes = fetch_postal_codes_for_city(c_code, state_name, city_name)
+            if not postcodes or len(postcodes) < 1:
+                print(f"         -> No postal codes retrieved for {city_name}. Skipping.")
                 continue
+                
+            random.shuffle(postcodes)
             
-            for state in states:
-                state_code = state.iso_code
-                state_name = state.name
-                
-                # Check if this state has target cities defined in our mapping
-                if c_code not in TARGET_CITIES_MAP or state_code not in TARGET_CITIES_MAP[c_code]:
+            valid_postcodes_collected = 0
+            target_valid_count = 20
+            
+            for pcode in postcodes:
+                if valid_postcodes_collected >= target_valid_count:
+                    break
+                    
+                clean_pcode = clean_postal_code(c_code, pcode)
+                if not clean_pcode:
                     continue
-                
-                if skip_state:
-                    if state_code == start_state_code:
-                        skip_state = False
-                        print(f" -> Resuming at state: {state_name} ({state_code})")
-                    else:
-                        print(f"   -> Skipping state {state_name} ({state_code})...")
-                        continue
-                
-                print(f"\n   [State] {state_name} ({state_code})")
-                target_city_names = TARGET_CITIES_MAP[c_code][state_code]
-                
-                for city_name in target_city_names:
-                    print(f"\n      -> [City] {city_name}")
                     
-                    postcodes = fetch_postal_codes_for_city(c_code, state_name, city_name)
-                    if not postcodes or len(postcodes) < 1:
-                        print(f"         -> No postal codes retrieved for {city_name}. Skipping.")
-                        continue
-                        
-                    random.shuffle(postcodes)
+                raw_addresses = fetch_addresses_for_postal_code(c_code, state_code, city_name, clean_pcode)
+                if len(raw_addresses) < 1:
+                    continue
                     
-                    valid_postcodes_collected = 0
-                    target_valid_count = 20
+                valid_postcodes_collected += 1
+                
+                existing_pcode = app_tables.datahub_postal_codes.get(Country_Code=c_code, Postal_Code=clean_pcode)
+                if not existing_pcode:
+                    app_tables.datahub_postal_codes.add_row(
+                        Country_Code=c_code,
+                        State_Code=state_code,
+                        Postal_Code=clean_pcode
+                    )
                     
-                    for pcode in postcodes:
-                        if valid_postcodes_collected >= target_valid_count:
-                            break
-                            
-                        clean_pcode = clean_postal_code(c_code, pcode)
-                        if not clean_pcode:
-                            continue
-                            
-                        raw_addresses = fetch_addresses_for_postal_code(c_code, state_code, city_name, clean_pcode)
-                        if len(raw_addresses) < 1:
-                            continue
-                            
-                        valid_postcodes_collected += 1
-                        
-                        existing_pcode = app_tables.datahub_postal_codes.get(Country_Code=c_code, Postal_Code=clean_pcode)
-                        if not existing_pcode:
-                            app_tables.datahub_postal_codes.add_row(
-                                Country_Code=c_code,
-                                State_Code=state_code,
-                                Postal_Code=clean_pcode
-                            )
-                            
-                        addresses_to_add = raw_addresses[:50]
-                        
-                        added_in_pcode = 0
-                        for addr in addresses_to_add:
-                            user_handle = f"{c_code}/{state_code}/{city_name}/{clean_pcode}/{addr['address_1']}"
-                            formatted_addr = f"{user_handle}/{addr['address_1']}/{city_name}, {state_code} {clean_pcode}/{c_name}"
-                            random_days_ago = random.uniform(0, 120)
-                            random_dt = now - datetime.timedelta(days=random_days_ago)
-                            
-                            app_tables.mapitems_test.add_row(
-                                user=user_handle,
-                                date_time=random_dt,
-                                created_time=now,
-                                region=region,
-                                country_code=c_code,
-                                country_name=c_name,
-                                state=state_code,
-                                state_name=state_name,
-                                city=city_name,
-                                address_1=addr["address_1"],
-                                address_2="",
-                                postal_code=clean_pcode,
-                                formatted_address=formatted_addr,
-                                latitude=addr["lat"],
-                                longitude=addr["lon"]
-                            )
-                            added_in_pcode += 1
-                            total_addresses_added += 1
-                            
-                        print(f"            -> Postal code {clean_pcode} ({valid_postcodes_collected}/{target_valid_count}): Added {added_in_pcode} addresses.")
-                        
-                    print(f"         -> Finished {city_name}: Collected {valid_postcodes_collected} valid postal codes.")
+                addresses_to_add = raw_addresses[:50]
+                
+                added_in_pcode = 0
+                for addr in addresses_to_add:
+                    user_handle = f"{c_code}/{state_code}/{city_name}/{clean_pcode}/{addr['address_1']}"
+                    formatted_addr = f"{user_handle}/{addr['address_1']}/{city_name}, {state_code} {clean_pcode}/{c_name}"
+                    random_days_ago = random.uniform(0, 120)
+                    random_dt = now - datetime.timedelta(days=random_days_ago)
+                    
+                    app_tables.mapitems_test.add_row(
+                        user=user_handle,
+                        date_time=random_dt,
+                        created_time=now,
+                        region=region,
+                        country_code=c_code,
+                        country_name=c_name,
+                        state=state_code,
+                        state_name=state_name,
+                        city=city_name,
+                        address_1=addr["address_1"],
+                        address_2="",
+                        postal_code=clean_pcode,
+                        formatted_address=formatted_addr,
+                        latitude=addr["lat"],
+                        longitude=addr["lon"]
+                    )
+                    added_in_pcode += 1
+                    total_addresses_added += 1
+                    
+                print(f"            -> Postal code {clean_pcode} ({valid_postcodes_collected}/{target_valid_count}): Added {added_in_pcode} addresses.")
+                
+            print(f"         -> Finished {city_name}: Collected {valid_postcodes_collected} valid postal codes.")
         except Exception as e:
-            print(f"[Error] Processing country {c_code} failed: {e}")
+            print(f"[Error] Processing city {city_name} failed: {e}")
 
     print(f"\nTotal new addresses generated in this run: {total_addresses_added}")
 
@@ -454,12 +418,10 @@ def run_full_data_generation_pipeline(start_country=None, start_state_code=None,
 
 
 @anvil.server.callable
-def start_data_generation_task(start_country=None, start_state_code=None, clear_tables=True, **kwargs):
-    print(f"Launching hierarchical background task (Country: {start_country}, State: {start_state_code}, Clear: {clear_tables})...")
+def start_data_generation_task(clear_tables=True, **kwargs):
+    print(f"Launching targeted background task (Clear: {clear_tables})...")
     task = anvil.server.launch_background_task(
         "run_full_data_generation_pipeline",
-        start_country=start_country,
-        start_state_code=start_state_code,
         clear_tables=clear_tables
     )
     print(f"Background task launched successfully. Task ID: {task.get_id()}")
