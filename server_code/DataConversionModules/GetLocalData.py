@@ -17,6 +17,32 @@ TARGET_COUNTRIES = [
     {"code": "MX", "name": "Mexico", "region": "North America"}
 ]
 
+# Targeted cities mapping by country and state code
+TARGET_CITIES_MAP = {
+    "CA": {
+        "QC": ["Montreal", "Quebec City"],
+        "ON": ["Toronto", "Ottawa", "Hamilton"]
+    },
+    "MX": {
+        "CMX": ["Mexico City"],
+        "JAL": ["Guadalajara"],
+        "NLE": ["Monterrey"],
+        "BCN": ["Tijuana"],
+        "GUA": ["Leon", "San Miguel de Allende"],
+        "CHH": ["Ciudad Juarez"]
+    },
+    "US": {
+        "CA": ["Los Angeles", "San Francisco"],
+        "AZ": ["Phoenix"],
+        "TX": ["Houston", "Dallas"],
+        "MO": ["St. Louis", "Kansas City"],
+        "IL": ["Chicago"],
+        "MA": ["Boston"],
+        "PA": ["Philadelphia"],
+        "NY": ["New York"]
+    }
+}
+
 # ---------------------------------------------------------
 # HELPER: Format Postal Code (Strict 5-digit for US)
 # ---------------------------------------------------------
@@ -312,12 +338,12 @@ def rebuild_user_lookup():
 
 
 # ---------------------------------------------------------
-# MASTER ORCHESTRATOR BACKGROUND TASK (UP TO 50 ADDRESSES MAX)
+# MASTER ORCHESTRATOR BACKGROUND TASK (20 VALID POSTAL CODES PER CITY)
 # ---------------------------------------------------------
 @anvil.server.background_task
-def run_full_data_generation_pipeline(start_country="US", start_state_code=None, clear_tables=True):
+def run_full_data_generation_pipeline(start_country=None, start_state_code=None, clear_tables=True, **kwargs):
     print("==================================================")
-    print(f"=== STARTING PIPELINE (Clear Tables: {clear_tables}) ===")
+    print(f"=== STARTING TARGETED PIPELINE (Clear Tables: {clear_tables}) ===")
     print("==================================================")
     
     if clear_tables:
@@ -352,11 +378,13 @@ def run_full_data_generation_pipeline(start_country="US", start_state_code=None,
             if not states:
                 continue
             
-            print(f" -> Processing all {len(states)} states/provinces available.")
-            
             for state in states:
                 state_code = state.iso_code
                 state_name = state.name
+                
+                # Check if this state has target cities defined in our mapping
+                if c_code not in TARGET_CITIES_MAP or state_code not in TARGET_CITIES_MAP[c_code]:
+                    continue
                 
                 if skip_state:
                     if state_code == start_state_code:
@@ -367,37 +395,37 @@ def run_full_data_generation_pipeline(start_country="US", start_state_code=None,
                         continue
                 
                 print(f"\n   [State] {state_name} ({state_code})")
-                cities = City.get_cities_of_state(c_code, state_code)
-                if not cities or len(cities) < 1:
-                    print(f"      -> No cities found. Skipping.")
-                    continue
+                target_city_names = TARGET_CITIES_MAP[c_code][state_code]
                 
-                max_s_cities = min(10, len(cities))
-                min_s_cities = min(5, len(cities))
-                sample_city_count = random.randint(min_s_cities, max_s_cities)
-                selected_cities = random.sample(cities, sample_city_count)
-                print(f"      -> Selected {sample_city_count} random cities out of {len(cities)} available.")
-                
-                for city in selected_cities:
-                    city_name = city.name
+                for city_name in target_city_names:
                     print(f"\n      -> [City] {city_name}")
                     
                     postcodes = fetch_postal_codes_for_city(c_code, state_code, city_name)
                     if not postcodes or len(postcodes) < 1:
-                        print(f"         -> No postal codes retrieved. Skipping.")
+                        print(f"         -> No postal codes retrieved for {city_name}. Skipping.")
                         continue
                         
-                    max_s_pc = min(10, len(postcodes))
-                    min_s_pc = min(5, len(postcodes))
-                    sample_pcode_count = random.randint(min_s_pc, max_s_pc)
-                    selected_postcodes = random.sample(postcodes, sample_pcode_count)
-                    print(f"         -> Harvested & sampled {sample_pcode_count} postal codes.")
+                    # Shuffle postal codes to randomize selection
+                    random.shuffle(postcodes)
                     
-                    for pcode in selected_postcodes:
+                    valid_postcodes_collected = 0
+                    target_valid_count = 20
+                    
+                    for pcode in postcodes:
+                        if valid_postcodes_collected >= target_valid_count:
+                            break
+                            
                         clean_pcode = clean_postal_code(c_code, pcode)
                         if not clean_pcode:
                             continue
                             
+                        raw_addresses = fetch_addresses_for_postal_code(c_code, state_code, city_name, clean_pcode)
+                        if len(raw_addresses) < 1:
+                            continue  # Skip postal codes that yield zero valid addresses
+                            
+                        # We found a valid postal code yielding addresses!
+                        valid_postcodes_collected += 1
+                        
                         existing_pcode = app_tables.datahub_postal_codes.get(Country_Code=c_code, Postal_Code=clean_pcode)
                         if not existing_pcode:
                             app_tables.datahub_postal_codes.add_row(
@@ -405,11 +433,6 @@ def run_full_data_generation_pipeline(start_country="US", start_state_code=None,
                                 State_Code=state_code,
                                 Postal_Code=clean_pcode
                             )
-                        
-                        raw_addresses = fetch_addresses_for_postal_code(c_code, state_code, city_name, clean_pcode)
-                        if len(raw_addresses) < 1:
-                            print(f"            -> Postal code {clean_pcode}: Found no valid addresses. Skipping.")
-                            continue
                             
                         addresses_to_add = raw_addresses[:50]
                         
@@ -440,7 +463,9 @@ def run_full_data_generation_pipeline(start_country="US", start_state_code=None,
                             added_in_pcode += 1
                             total_addresses_added += 1
                             
-                        print(f"            -> Postal code {clean_pcode}: Added {added_in_pcode} addresses (capped at 50).")
+                        print(f"            -> Postal code {clean_pcode} ({valid_postcodes_collected}/{target_valid_count}): Added {added_in_pcode} addresses.")
+                        
+                    print(f"         -> Finished {city_name}: Collected {valid_postcodes_collected} valid postal codes.")
         except Exception as e:
             print(f"[Error] Processing country {c_code} failed: {e}")
 
@@ -455,8 +480,8 @@ def run_full_data_generation_pipeline(start_country="US", start_state_code=None,
 
 
 @anvil.server.callable
-def start_data_generation_task(start_country="US", start_state_code=None, clear_tables=True):
-    print(f"Launching background task starting at Country: {start_country}, State: {start_state_code}, Clear: {clear_tables}...")
+def start_data_generation_task(start_country=None, start_state_code=None, clear_tables=True, **kwargs):
+    print(f"Launching hierarchical background task (Country: {start_country}, State: {start_state_code}, Clear: {clear_tables})...")
     task = anvil.server.launch_background_task(
         "run_full_data_generation_pipeline",
         start_country=start_country,
