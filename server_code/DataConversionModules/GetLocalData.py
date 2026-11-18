@@ -25,6 +25,8 @@ TARGET_CITIES_MAP = {
     },
     "MX": {
         "CMX": ["Mexico City"],
+        "DIF": ["Mexico City"],
+        "MEX": ["Mexico City"],
         "JAL": ["Guadalajara"],
         "NLE": ["Monterrey"],
         "BCN": ["Tijuana"],
@@ -44,10 +46,10 @@ TARGET_CITIES_MAP = {
 }
 
 # ---------------------------------------------------------
-# HELPER: Format Postal Code (Strict 5-digit for US)
+# HELPER: Format Postal Code
 # ---------------------------------------------------------
 def clean_postal_code(country_code, pcode):
-    """Ensures US postal codes are strictly 5 digits (stripping +4 extensions and hyphens)."""
+    """Ensures US postal codes are 5 digits and trims international codes."""
     if not pcode:
         return ""
     pcode = str(pcode).strip()
@@ -91,79 +93,53 @@ def clear_all_target_tables():
 
 
 # ---------------------------------------------------------
-# STEP 2: Get Postal Codes via Nominatim (Reliable & Timeout-Resistant)
+# STEP 2: Get Postal Codes via Robust Multi-Tier Nominatim Search
 # ---------------------------------------------------------
-def fetch_postal_codes_for_city(country_code, state_code, city_name):
-    """Query Nominatim for postal codes associated with a city to bypass heavy Overpass timeouts."""
+def fetch_postal_codes_for_city(country_code, state_name, city_name):
+    """Query Nominatim using multi-tier freeform and structured queries for high reliability."""
     nominatim_url = "https://nominatim.openstreetmap.org/search"
     headers = {"User-Agent": "GetLocalDataHarvester/1.0"}
+    postcodes = set()
     
-    params = {
-        "city": city_name,
-        "state": state_code,
-        "country": country_code,
-        "format": "json",
-        "addressdetails": 1,
-        "limit": 50
-    }
+    # Tier 1: Freeform query (Most reliable for international & Mexican cities)
+    queries = [
+        f"{city_name}, {state_name}, {country_code}",
+        f"{city_name}, {country_code}"
+    ]
     
-    for attempt in range(3):
+    for q_str in queries:
         try:
+            params = {
+                "q": q_str,
+                "format": "json",
+                "addressdetails": 1,
+                "limit": 40
+            }
             response = requests.get(nominatim_url, params=params, headers=headers, timeout=20)
             response.raise_for_status()
-            data = response.json()
-            
-            postcodes = set()
-            for item in data:
+            for item in response.json():
                 address = item.get("address", {})
                 raw_pcode = address.get("postcode")
                 if raw_pcode:
-                    formatted_pcode = clean_postal_code(country_code, raw_pcode)
-                    if formatted_pcode:
-                        postcodes.add(formatted_pcode)
-            
-            time.sleep(2)  # Polite pause
-            if postcodes:
-                return list(postcodes)
-            break
+                    fmt = clean_postal_code(country_code, raw_pcode)
+                    if fmt:
+                        postcodes.add(fmt)
+            time.sleep(2)
         except Exception:
             time.sleep(3)
             
-    # Fallback freeform query if structured search returned nothing
-    try:
-        fallback_params = {
-            "q": f"{city_name}, {state_code}, {country_code}",
-            "format": "json",
-            "addressdetails": 1,
-            "limit": 30
-        }
-        response = requests.get(nominatim_url, params=fallback_params, headers=headers, timeout=20)
-        response.raise_for_status()
-        data = response.json()
-        
-        postcodes = set()
-        for item in data:
-            address = item.get("address", {})
-            raw_pcode = address.get("postcode")
-            if raw_pcode:
-                formatted_pcode = clean_postal_code(country_code, raw_pcode)
-                if formatted_pcode:
-                    postcodes.add(formatted_pcode)
-        time.sleep(2)
         if postcodes:
             return list(postcodes)
-    except Exception:
-        pass
-        
-    print(f"    [Warning] Failed to fetch postal codes for {city_name}, {state_code} after retries.")
+            
+    print(f"    [Warning] Failed to fetch postal codes for {city_name}, {state_name} after retries.")
     return []
 
 
 # ---------------------------------------------------------
-# STEPS 3 & 4: Get Addresses and Write to MapItems_Test (Up to 50 max)
+# STEPS 3 & 4: Get Addresses and Write to MapItems_Test
 # ---------------------------------------------------------
 def fetch_addresses_for_postal_code(country_code, state_code, city_name, postal_code):
-    """Query Overpass API for addresses with timeout protection and automatic retries."""
+    """Query Overpass API for addresses using bounding box derived from postal code lookup."""
     postal_code = clean_postal_code(country_code, postal_code)
     
     nominatim_url = "https://nominatim.openstreetmap.org/search"
@@ -338,7 +314,7 @@ def rebuild_user_lookup():
 
 
 # ---------------------------------------------------------
-# MASTER ORCHESTRATOR BACKGROUND TASK (20 VALID POSTAL CODES PER CITY)
+# MASTER ORCHESTRATOR BACKGROUND TASK
 # ---------------------------------------------------------
 @anvil.server.background_task
 def run_full_data_generation_pipeline(start_country=None, start_state_code=None, clear_tables=True, **kwargs):
@@ -400,12 +376,11 @@ def run_full_data_generation_pipeline(start_country=None, start_state_code=None,
                 for city_name in target_city_names:
                     print(f"\n      -> [City] {city_name}")
                     
-                    postcodes = fetch_postal_codes_for_city(c_code, state_code, city_name)
+                    postcodes = fetch_postal_codes_for_city(c_code, state_name, city_name)
                     if not postcodes or len(postcodes) < 1:
                         print(f"         -> No postal codes retrieved for {city_name}. Skipping.")
                         continue
                         
-                    # Shuffle postal codes to randomize selection
                     random.shuffle(postcodes)
                     
                     valid_postcodes_collected = 0
@@ -421,9 +396,8 @@ def run_full_data_generation_pipeline(start_country=None, start_state_code=None,
                             
                         raw_addresses = fetch_addresses_for_postal_code(c_code, state_code, city_name, clean_pcode)
                         if len(raw_addresses) < 1:
-                            continue  # Skip postal codes that yield zero valid addresses
+                            continue
                             
-                        # We found a valid postal code yielding addresses!
                         valid_postcodes_collected += 1
                         
                         existing_pcode = app_tables.datahub_postal_codes.get(Country_Code=c_code, Postal_Code=clean_pcode)
