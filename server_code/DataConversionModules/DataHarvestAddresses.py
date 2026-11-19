@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta
+import itertools
+import math
 import random
 import re
 import time
@@ -24,6 +26,15 @@ _COUNTRY_FALLBACKS = {
     "CA": "Canada",
     "MX": "Mexico",
 }
+
+OVERPASS_ENDPOINTS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.openstreetmap.fr/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+]
+
+_ENDPOINT_CYCLE = itertools.cycle(OVERPASS_ENDPOINTS)
 
 
 def _get_region(country_code):
@@ -94,7 +105,47 @@ def _extract_coords(element):
     return None, None
 
 
-def _parse_overpass_elements(data, pcode, max_addresses=5, log_rejects=True, max_reject_logs=10):
+def _haversine_km(lat1, lon1, lat2, lon2):
+  r = 6371.0
+  p1 = math.radians(lat1)
+  p2 = math.radians(lat2)
+  dp = math.radians(lat2 - lat1)
+  dl = math.radians(lon2 - lon1)
+  a = math.sin(dp / 2.0) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2.0) ** 2
+  return 2.0 * r * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
+
+
+def _check_area_match(lat, lon, geo_lat, geo_lon, max_distance_km=50.0, max_deg_delta=0.75):
+  if geo_lat is None or geo_lon is None:
+    return True, None
+
+  if abs(lat - geo_lat) > max_deg_delta or abs(lon - geo_lon) > max_deg_delta:
+    dist_km = _haversine_km(geo_lat, geo_lon, lat, lon)
+    return False, (
+        f"outside expected area ({lat:.4f}, {lon:.4f}) vs geo ({geo_lat:.4f}, {geo_lon:.4f}); "
+        f"dist={dist_km:.1f}km > {max_distance_km:.0f}km"
+    )
+
+  dist_km = _haversine_km(geo_lat, geo_lon, lat, lon)
+  if dist_km > max_distance_km:
+    return False, (
+        f"too far from geo ({geo_lat:.4f}, {geo_lon:.4f}): "
+        f"dist={dist_km:.1f}km > {max_distance_km:.0f}km"
+    )
+
+  return True, None
+
+
+def _parse_overpass_elements(
+    data,
+    pcode,
+    max_addresses=5,
+    geo_lat=None,
+    geo_lon=None,
+    max_distance_km=50.0,
+    log_rejects=True,
+    max_reject_logs=10,
+):
   elements = data.get("elements", [])
   valid_elements = []
   reject_reasons = {}
@@ -115,6 +166,12 @@ def _parse_overpass_elements(data, pcode, max_addresses=5, log_rejects=True, max
       reasons.append("missing addr:street")
     if lat is None or lon is None:
       reasons.append("missing/invalid lat/lon")
+    else:
+      in_area, area_reason = _check_area_match(
+          lat, lon, geo_lat, geo_lon, max_distance_km=max_distance_km
+      )
+      if not in_area:
+        reasons.append(area_reason)
 
     if reasons:
       reason_key = ", ".join(reasons)
@@ -138,7 +195,10 @@ def _parse_overpass_elements(data, pcode, max_addresses=5, log_rejects=True, max
     summary_str = "; ".join(f"{k}: {v}" for k, v in reject_reasons.items())
     extra_suppressed = max(0, sum(reject_reasons.values()) - logged_rejects)
     suppressed_note = f" ({extra_suppressed} detail lines suppressed)" if extra_suppressed else ""
-    print(f"    [REJECT SUMMARY] {sum(reject_reasons.values())} of {len(elements)} elements rejected -> {summary_str}{suppressed_note}")
+    print(
+        f"    [REJECT SUMMARY] {sum(reject_reasons.values())} of {len(elements)} elements rejected -> "
+        f"{summary_str}{suppressed_note}"
+    )
   else:
     print(f"    [ELEMENTS] Inspected {len(elements)} raw elements; 0 rejected.")
 
@@ -154,18 +214,35 @@ def _parse_overpass_elements(data, pcode, max_addresses=5, log_rejects=True, max
         f"pc='{item['postcode']}', ({item['lat']:.5f}, {item['lon']:.5f})"
     )
 
-  return selected, len(valid_elements)
+  return selected, len(valid_elements), len(elements)
 
 
-def _post_overpass(overpass_url, headers, query, timeout_sec=40):
-  resp = requests.post(
-      overpass_url,
-      data={"data": query},
-      headers=headers,
-      timeout=timeout_sec,
-  )
-  resp.raise_for_status()
-  return resp.json()
+def _post_overpass_fast(headers, query, connect_timeout=8, read_timeout=15):
+  """Try endpoints in round-robin order with a tight read timeout so slow servers fail fast."""
+  last_err = None
+  start_url = next(_ENDPOINT_CYCLE)
+  start_idx = OVERPASS_ENDPOINTS.index(start_url)
+  ordered = OVERPASS_ENDPOINTS[start_idx:] + OVERPASS_ENDPOINTS[:start_idx]
+
+  for url in ordered:
+    try:
+      resp = requests.post(
+          url,
+          data={"data": query},
+          headers=headers,
+          timeout=(connect_timeout, read_timeout),
+      )
+      resp.raise_for_status()
+      payload = resp.json()
+      remark = str(payload.get("remark") or "")
+      if "timed out" in remark.lower() or "out of memory" in remark.lower():
+        raise RuntimeError(f"Overpass remark at {url}: {remark}")
+      return payload, url
+    except Exception as e:
+      last_err = e
+      print(f"    [ENDPOINT SKIP] {url} -> {e}")
+
+  raise last_err
 
 
 def _build_postcode_filter(pcode, country_code):
@@ -181,44 +258,69 @@ def _build_postcode_filter(pcode, country_code):
 
 
 def _query_overpass_addresses(
-    overpass_url,
     headers,
     pcode,
     country_code="",
     geo_lat=None,
     geo_lon=None,
     max_addresses=5,
-    timeout_sec=40,
+    connect_timeout=8,
+    read_timeout=15,
+    max_distance_km=50.0,
 ):
   postcode_filter = _build_postcode_filter(pcode, country_code)
 
   direct_query = f"""
-  [out:json][timeout:35];
+  [out:json][timeout:15];
   (
     node{postcode_filter}["addr:street"]["addr:housenumber"];
     way{postcode_filter}["addr:street"]["addr:housenumber"];
   );
   out center tags;
   """
-  print(f"  [REQUEST 1/2 - postcode] url={overpass_url} timeout={timeout_sec}s filter={postcode_filter}")
-  data = _post_overpass(overpass_url, headers, direct_query, timeout_sec=timeout_sec)
-  results, total_valid = _parse_overpass_elements(data, pcode, max_addresses=max_addresses)
+  print(
+      f"  [REQUEST 1/2 - postcode] endpoints={len(OVERPASS_ENDPOINTS)} "
+      f"timeout=({connect_timeout}s, {read_timeout}s) filter={postcode_filter} max_dist={max_distance_km}km"
+  )
+  data, used_url = _post_overpass_fast(
+      headers, direct_query, connect_timeout=connect_timeout, read_timeout=read_timeout
+  )
+  print(f"    [ENDPOINT OK] {used_url}")
+  results, total_valid, raw_count = _parse_overpass_elements(
+      data,
+      pcode,
+      max_addresses=max_addresses,
+      geo_lat=geo_lat,
+      geo_lon=geo_lon,
+      max_distance_km=max_distance_km,
+  )
   if results:
     return results, "postcode", total_valid
 
-  if geo_lat is not None and geo_lon is not None:
+  if raw_count == 0 and geo_lat is not None and geo_lon is not None:
     around_query = f"""
-    [out:json][timeout:35];
+    [out:json][timeout:15];
     (
       node(around:2000,{geo_lat},{geo_lon})["addr:street"]["addr:housenumber"];
       way(around:2000,{geo_lat},{geo_lon})["addr:street"]["addr:housenumber"];
     );
     out center tags;
     """
-    print(f"  [REQUEST 2/2 - around_2km] url={overpass_url} timeout={timeout_sec}s around=2000m at ({geo_lat}, {geo_lon})")
-    data_around = _post_overpass(overpass_url, headers, around_query, timeout_sec=timeout_sec)
-    results_around, total_around_valid = _parse_overpass_elements(
-        data_around, pcode, max_addresses=max_addresses
+    print(
+        f"  [REQUEST 2/2 - around_2km] endpoints={len(OVERPASS_ENDPOINTS)} "
+        f"timeout=({connect_timeout}s, {read_timeout}s) around=2000m at ({geo_lat}, {geo_lon})"
+    )
+    data_around, used_around_url = _post_overpass_fast(
+        headers, around_query, connect_timeout=connect_timeout, read_timeout=read_timeout
+    )
+    print(f"    [ENDPOINT OK] {used_around_url}")
+    results_around, total_around_valid, _ = _parse_overpass_elements(
+        data_around,
+        pcode,
+        max_addresses=max_addresses,
+        geo_lat=geo_lat,
+        geo_lon=geo_lon,
+        max_distance_km=max_distance_km,
     )
     if results_around:
       return results_around, "around_2km", total_around_valid
@@ -390,12 +492,13 @@ def harvest_geonames_postal_test(
     pause_seconds=4,
     report_every_n=10,
     report_interval_seconds=30,
-    timeout_sec=40,
+    connect_timeout=8,
+    read_timeout=15,
     target_country="US",
+    max_distance_km=50.0,
 ):
-  overpass_url = "https://overpass.openstreetmap.fr/api/interpreter"
   headers = {
-      "User-Agent": "AnvilGeoNamesHarvester/2.1 (contact: admin@app.com)"
+      "User-Agent": "AnvilGeoNamesHarvester/2.4 (contact: admin@app.com)"
   }
   target_cc = (target_country or "US").strip().upper()
 
@@ -404,7 +507,8 @@ def harvest_geonames_postal_test(
   print(
       f"Starting Overpass harvest from Data_Geonames_Postal for country='{target_cc}' "
       f"(limit={limit_records}, max_per_code={max_addresses_per_code}, "
-      f"pause={pause_seconds}s, timeout={timeout_sec}s)..."
+      f"pause={pause_seconds}s, timeout=({connect_timeout}s, {read_timeout}s), "
+      f"max_dist={max_distance_km}km)..."
   )
 
   rows = app_tables.data_geonames_postal.search()
@@ -414,6 +518,7 @@ def harvest_geonames_postal_test(
   matched_codes = 0
   total_addresses_added = 0
   error_count = 0
+  consecutive_failures = 0
   seq_id = 1
 
   for row in rows:
@@ -430,7 +535,10 @@ def harvest_geonames_postal_test(
     if country_code != target_cc:
       skipped_non_us += 1
       if skipped_non_us == 1 or skipped_non_us % 500 == 0:
-        print(f"  [SKIP] Bypassed {skipped_non_us} non-{target_cc} row(s) so far (latest: {country_code} {pcode})...")
+        print(
+            f"  [SKIP] Bypassed {skipped_non_us} non-{target_cc} row(s) so far "
+            f"(latest: {country_code} {pcode})..."
+        )
       continue
 
     state_code = str(row["State_code"] or "").strip().upper()
@@ -452,15 +560,17 @@ def harvest_geonames_postal_test(
 
     try:
       sampled_addresses, source_mode, total_valid = _query_overpass_addresses(
-          overpass_url=overpass_url,
           headers=headers,
           pcode=pcode,
           country_code=country_code,
           geo_lat=geo_lat,
           geo_lon=geo_lon,
           max_addresses=max_addresses_per_code,
-          timeout_sec=timeout_sec,
+          connect_timeout=connect_timeout,
+          read_timeout=read_timeout,
+          max_distance_km=max_distance_km,
       )
+      consecutive_failures = 0
       if sampled_addresses:
         matched_codes += 1
       batch_anchor_dt = datetime.now()
@@ -484,19 +594,22 @@ def harvest_geonames_postal_test(
       )
     except requests.HTTPError as e:
       error_count += 1
+      consecutive_failures += 1
       status = e.response.status_code if e.response is not None else "unknown"
-      if status in (429, 502, 503, 504):
-        current_wait = max(pause_seconds * 4, 20)
+      base_backoff = max(pause_seconds * 4, 20) if status in (429, 502, 503, 504) else max(pause_seconds * 2, 10)
+      current_wait = min(60, base_backoff * (2 ** (consecutive_failures - 1)))
       print(
           f"  [Overpass HTTP {status}] {pcode} ({country_code}): {e}; "
-          f"backing off {current_wait}s."
+          f"consecutive_failures={consecutive_failures}, backing off {current_wait}s."
       )
     except Exception as e:
       error_count += 1
-      current_wait = max(pause_seconds * 2, 10)
+      consecutive_failures += 1
+      base_backoff = max(pause_seconds * 2, 10)
+      current_wait = min(60, base_backoff * (2 ** (consecutive_failures - 1)))
       print(
           f"  [Overpass Error] {pcode} ({country_code}): {e}; "
-          f"waiting {current_wait}s."
+          f"consecutive_failures={consecutive_failures}, waiting {current_wait}s."
       )
 
     now_ts = time.time()
@@ -530,7 +643,7 @@ def harvest_geonames_postal_test(
 
 
 @anvil.server.callable
-def start_geonames_harvest_test(limit_records=50, target_country="US"):
+def start_geonames_harvest_test(limit_records=50, target_country="US", max_distance_km=50.0):
   return anvil.server.launch_background_task(
       "harvest_geonames_postal_test",
       limit_records=limit_records,
@@ -538,14 +651,67 @@ def start_geonames_harvest_test(limit_records=50, target_country="US"):
       pause_seconds=4,
       report_every_n=10,
       report_interval_seconds=30,
-      timeout_sec=40,
+      connect_timeout=8,
+      read_timeout=15,
       target_country=target_country,
+      max_distance_km=max_distance_km,
   )
 
 
 @anvil.server.callable
-def start_individual_harvest(limit_records=50, target_country="US"):
+def start_individual_harvest(limit_records=50, target_country="US", max_distance_km=50.0):
   return start_geonames_harvest_test(
       limit_records=limit_records,
       target_country=target_country,
+      max_distance_km=max_distance_km,
   )
+
+
+@anvil.server.background_task
+def delete_ca_short_codes_task(report_every_n=500, pause_every_n=250, pause_seconds=0.2):
+  start_time = time.time()
+  checked = 0
+  deleted = 0
+  skipped = 0
+  stopped_on_mx = False
+
+  print("Starting CA 3-character postal code cleanup on Data_Geonames_Postal...")
+  rows = app_tables.data_geonames_postal.search()
+
+  for row in rows:
+    checked += 1
+    country_code = str(row["Country_code"] or "").strip().upper()
+    pcode = str(row["Postal_code"] or "").strip()
+
+    if country_code == "MX":
+      print(f"Reached 'MX' record at row #{checked} (Postal_code='{pcode}'). Stopping cleanup.")
+      stopped_on_mx = True
+      break
+
+    if country_code == "CA" and len(pcode) == 3:
+      row.delete()
+      deleted += 1
+    else:
+      skipped += 1
+
+    if report_every_n and checked % report_every_n == 0:
+      elapsed = time.time() - start_time
+      print(
+          f"[Cleanup Progress] Checked: {checked} | Deleted (CA 3-char): {deleted} | "
+          f"Skipped: {skipped} | Elapsed: {elapsed:.1f}s"
+      )
+
+    if pause_every_n and pause_seconds and checked % pause_every_n == 0:
+      time.sleep(pause_seconds)
+
+  elapsed = time.time() - start_time
+  print(
+      f"Cleanup finished in {elapsed:.1f}s. Checked: {checked}, "
+      f"Deleted: {deleted}, Skipped: {skipped}, Stopped on MX: {stopped_on_mx}."
+  )
+  return {
+      "checked": checked,
+      "deleted": deleted,
+      "skipped": skipped,
+      "stopped_on_mx": stopped_on_mx,
+  }
