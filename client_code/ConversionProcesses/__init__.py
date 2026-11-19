@@ -205,43 +205,35 @@ class ConversionProcesses(ConversionProcessesTemplate):
 
 
     def load_test_addresses_click(self, **event_args):
-      """Launch the 50-record Overpass address harvest background task."""
-      btn = event_args.get("sender")
-      if btn:
-        btn.enabled = False
+          """Launch full US Overpass address harvest from the beginning (skipping CA/MX)."""
+          btn = event_args.get("sender")
+          if btn:
+            btn.enabled = False
 
-      try:
-        task = anvil.server.call("start_geonames_harvest_test", limit_records=50)
-        task_id = task.get_id() if task and hasattr(task, "get_id") else None
+          try:
+            task = anvil.server.call(
+                "start_geonames_harvest_test",
+                limit_records=None,
+                skip_first_us=0,
+                target_country="US",
+            )
+            task_id = task.get_id() if task and hasattr(task, "get_id") else None
 
-        msg = "Started 50-record address harvest in the background. Check the server console for progress."
-        if task_id:
-          msg = f"Started 50-record address harvest (Task: {task_id}). Check the server console for progress."
+            msg = (
+                "Started full US address harvest from the beginning (skipping CA and MX) "
+                "in the background. Check the server console for progress."
+            )
+            if task_id:
+              msg = (
+                  f"Started full US address harvest (Task: {task_id}). "
+                  "Check the server console for progress."
+              )
 
-        anvil.Notification(msg, title="Harvest Started", style="success").show()
-      except Exception as e:
-        anvil.alert(f"Error starting address harvest: {e}", title="Harvest Error")
-      finally:
-        if btn:
-          btn.enabled = True
+            anvil.Notification(msg, title="Harvest Started", style="success").show()
+          except Exception as e:
+            anvil.alert(f"Error starting address harvest: {e}", title="Harvest Error")
+          finally:
+            if btn:
+              btn.enabled = True
 
-    def delete_ca_short_codes_click(self, **event_args):
-      """Launch background task to delete 3-character CA postal codes up to MX."""
-      btn = event_args.get("sender")
-      if btn:
-        btn.enabled = False
-
-      try:
-        task = anvil.server.call("start_delete_ca_short_codes")
-        task_id = task.get_id() if task and hasattr(task, "get_id") else None
-
-        msg = "Started deleting 3-character CA postal codes in the background. Check the server console for progress."
-        if task_id:
-          msg = f"Started CA short-code cleanup (Task: {task_id}). Check the server console for progress."
-
-        anvil.Notification(msg, title="Cleanup Started", style="success").show()
-      except Exception as e:
-        anvil.alert(f"Error starting CA short-code cleanup: {e}", title="Cleanup Error")
-      finally:
-        if btn:
-          btn.enabled = True
+    
