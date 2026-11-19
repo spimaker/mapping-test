@@ -77,36 +77,92 @@ def _build_formatted_address(user_val, address_1, city, state, pcode, country_na
   return "/".join(segments)
 
 
-def _parse_overpass_elements(data, pcode, max_addresses=5):
-  valid_elements = []
-  for element in data.get("elements", []):
-    tags = element.get("tags", {})
-    house_no = tags.get("addr:housenumber")
-    street = tags.get("addr:street")
-    lat = element.get("lat") or element.get("center", {}).get("lat")
-    lon = element.get("lon") or element.get("center", {}).get("lon")
+def _extract_coords(element):
+  lat = element.get("lat")
+  lon = element.get("lon")
+  if lat is None or lon is None:
+    center = element.get("center") or {}
+    if lat is None:
+      lat = center.get("lat")
+    if lon is None:
+      lon = center.get("lon")
+  if lat is None or lon is None:
+    return None, None
+  try:
+    return float(lat), float(lon)
+  except (ValueError, TypeError):
+    return None, None
 
-    if house_no and street and lat is not None and lon is not None:
-      valid_elements.append({
-          "house_no": str(house_no).strip(),
-          "street": str(street).strip(),
-          "city": str(tags.get("addr:city") or tags.get("addr:suburb") or "").strip(),
-          "postcode": str(tags.get("addr:postcode") or pcode).strip(),
-          "lat": float(lat),
-          "lon": float(lon),
-      })
+
+def _parse_overpass_elements(data, pcode, max_addresses=5, log_rejects=True, max_reject_logs=10):
+  elements = data.get("elements", [])
+  valid_elements = []
+  reject_reasons = {}
+  logged_rejects = 0
+
+  for element in elements:
+    el_type = element.get("type", "?")
+    el_id = element.get("id", "?")
+    tags = element.get("tags") or {}
+    house_no = str(tags.get("addr:housenumber") or "").strip()
+    street = str(tags.get("addr:street") or "").strip()
+    lat, lon = _extract_coords(element)
+
+    reasons = []
+    if not house_no:
+      reasons.append("missing addr:housenumber")
+    if not street:
+      reasons.append("missing addr:street")
+    if lat is None or lon is None:
+      reasons.append("missing/invalid lat/lon")
+
+    if reasons:
+      reason_key = ", ".join(reasons)
+      reject_reasons[reason_key] = reject_reasons.get(reason_key, 0) + 1
+      if log_rejects and logged_rejects < max_reject_logs:
+        print(f"    [REJECT] {el_type}/{el_id}: {reason_key} | tags={tags}")
+        logged_rejects += 1
+      continue
+
+    valid_elements.append({
+        "osm_ref": f"{el_type}/{el_id}",
+        "house_no": house_no,
+        "street": street,
+        "city": str(tags.get("addr:city") or tags.get("addr:suburb") or "").strip(),
+        "postcode": str(tags.get("addr:postcode") or pcode).strip(),
+        "lat": lat,
+        "lon": lon,
+    })
+
+  if reject_reasons:
+    summary_str = "; ".join(f"{k}: {v}" for k, v in reject_reasons.items())
+    extra_suppressed = max(0, sum(reject_reasons.values()) - logged_rejects)
+    suppressed_note = f" ({extra_suppressed} detail lines suppressed)" if extra_suppressed else ""
+    print(f"    [REJECT SUMMARY] {sum(reject_reasons.values())} of {len(elements)} elements rejected -> {summary_str}{suppressed_note}")
+  else:
+    print(f"    [ELEMENTS] Inspected {len(elements)} raw elements; 0 rejected.")
 
   if len(valid_elements) <= max_addresses:
-    return valid_elements
-  return random.sample(valid_elements, max_addresses)
+    selected = valid_elements
+  else:
+    selected = random.sample(valid_elements, max_addresses)
+
+  for idx, item in enumerate(selected, 1):
+    print(
+        f"    [GOOD {idx}/{len(selected)}] {item['osm_ref']} -> "
+        f"'{item['house_no']} {item['street']}', city='{item['city'] or '-'}', "
+        f"pc='{item['postcode']}', ({item['lat']:.5f}, {item['lon']:.5f})"
+    )
+
+  return selected, len(valid_elements)
 
 
-def _post_overpass(overpass_url, headers, query):
+def _post_overpass(overpass_url, headers, query, timeout_sec=40):
   resp = requests.post(
       overpass_url,
       data={"data": query},
       headers=headers,
-      timeout=40,
+      timeout=timeout_sec,
   )
   resp.raise_for_status()
   return resp.json()
@@ -132,10 +188,10 @@ def _query_overpass_addresses(
     geo_lat=None,
     geo_lon=None,
     max_addresses=5,
+    timeout_sec=40,
 ):
   postcode_filter = _build_postcode_filter(pcode, country_code)
 
-  # 1. Direct query by postal code (no bbox required)
   direct_query = f"""
   [out:json][timeout:35];
   (
@@ -144,12 +200,12 @@ def _query_overpass_addresses(
   );
   out center tags;
   """
-  data = _post_overpass(overpass_url, headers, direct_query)
-  results = _parse_overpass_elements(data, pcode, max_addresses=max_addresses)
+  print(f"  [REQUEST 1/2 - postcode] url={overpass_url} timeout={timeout_sec}s filter={postcode_filter}")
+  data = _post_overpass(overpass_url, headers, direct_query, timeout_sec=timeout_sec)
+  results, total_valid = _parse_overpass_elements(data, pcode, max_addresses=max_addresses)
   if results:
-    return results, "postcode"
+    return results, "postcode", total_valid
 
-  # 2. Fallback around GeoNames Latitude/Longitude if exact/prefix postcode tag is absent
   if geo_lat is not None and geo_lon is not None:
     around_query = f"""
     [out:json][timeout:35];
@@ -159,12 +215,16 @@ def _query_overpass_addresses(
     );
     out center tags;
     """
-    data_around = _post_overpass(overpass_url, headers, around_query)
-    results_around = _parse_overpass_elements(data_around, pcode, max_addresses=max_addresses)
+    print(f"  [REQUEST 2/2 - around_2km] url={overpass_url} timeout={timeout_sec}s around=2000m at ({geo_lat}, {geo_lon})")
+    data_around = _post_overpass(overpass_url, headers, around_query, timeout_sec=timeout_sec)
+    results_around, total_around_valid = _parse_overpass_elements(
+        data_around, pcode, max_addresses=max_addresses
+    )
     if results_around:
-      return results_around, "around_2km"
+      return results_around, "around_2km", total_around_valid
+    return [], "around_2km(0)", total_around_valid
 
-  return [], "none"
+  return [], "postcode(0)", 0
 
 
 def _upsert_summary_bbox(table, match_kwargs, base_kwargs, lat, lon, count_delta=1):
@@ -305,6 +365,7 @@ def _insert_map_item_and_sync(
 def _print_progress(
     processed_records,
     limit_records,
+    skipped_non_us,
     matched_codes,
     total_addresses_added,
     error_count,
@@ -314,7 +375,7 @@ def _print_progress(
   rate = processed_records / elapsed if elapsed > 0 else 0.0
   limit_str = str(limit_records) if limit_records else "ALL"
   print(
-      f"[Progress] Checked: {processed_records}/{limit_str} | "
+      f"[Progress] US Checked: {processed_records}/{limit_str} (skipped non-US: {skipped_non_us}) | "
       f"Codes with hits: {matched_codes} | "
       f"Addresses added: {total_addresses_added} | "
       f"Errors: {error_count} | "
@@ -329,22 +390,27 @@ def harvest_geonames_postal_test(
     pause_seconds=4,
     report_every_n=10,
     report_interval_seconds=30,
+    timeout_sec=40,
+    target_country="US",
 ):
   overpass_url = "https://overpass.openstreetmap.fr/api/interpreter"
   headers = {
-      "User-Agent": "AnvilGeoNamesHarvester/1.9 (contact: admin@app.com)"
+      "User-Agent": "AnvilGeoNamesHarvester/2.1 (contact: admin@app.com)"
   }
+  target_cc = (target_country or "US").strip().upper()
 
   start_time = time.time()
   last_report_time = start_time
   print(
-      f"Starting Overpass harvest from Data_Geonames_Postal "
-      f"(limit={limit_records}, max_per_code={max_addresses_per_code}, pause={pause_seconds}s)..."
+      f"Starting Overpass harvest from Data_Geonames_Postal for country='{target_cc}' "
+      f"(limit={limit_records}, max_per_code={max_addresses_per_code}, "
+      f"pause={pause_seconds}s, timeout={timeout_sec}s)..."
   )
 
   rows = app_tables.data_geonames_postal.search()
 
   processed_records = 0
+  skipped_non_us = 0
   matched_codes = 0
   total_addresses_added = 0
   error_count = 0
@@ -352,13 +418,23 @@ def harvest_geonames_postal_test(
 
   for row in rows:
     if limit_records is not None and processed_records >= limit_records:
-      print(f"Reached record limit ({limit_records}). Stopping harvest.")
+      print(f"Reached {target_cc} record limit ({limit_records}). Stopping harvest.")
       break
 
     country_code = str(row["Country_code"] or "").strip().upper()
+    pcode = str(row["Postal_code"] or "").strip()
+
+    if not country_code or not pcode:
+      continue
+
+    if country_code != target_cc:
+      skipped_non_us += 1
+      if skipped_non_us == 1 or skipped_non_us % 500 == 0:
+        print(f"  [SKIP] Bypassed {skipped_non_us} non-{target_cc} row(s) so far (latest: {country_code} {pcode})...")
+      continue
+
     state_code = str(row["State_code"] or "").strip().upper()
     state_name = str(row["State_name"] or "").strip()
-    pcode = str(row["Postal_code"] or "").strip()
     fallback_city = str(row["Place"] or row["Community_name"] or "").strip()
 
     try:
@@ -367,14 +443,15 @@ def harvest_geonames_postal_test(
     except (ValueError, TypeError):
       geo_lat, geo_lon = None, None
 
-    if not country_code or not pcode:
-      continue
-
     processed_records += 1
     current_wait = pause_seconds
+    print(
+        f"\n[{processed_records}/{limit_records}] {target_cc} pcode='{pcode}' state='{state_code}' "
+        f"place='{fallback_city}' geo=({geo_lat}, {geo_lon})"
+    )
 
     try:
-      sampled_addresses, source_mode = _query_overpass_addresses(
+      sampled_addresses, source_mode, total_valid = _query_overpass_addresses(
           overpass_url=overpass_url,
           headers=headers,
           pcode=pcode,
@@ -382,6 +459,7 @@ def harvest_geonames_postal_test(
           geo_lat=geo_lat,
           geo_lon=geo_lon,
           max_addresses=max_addresses_per_code,
+          timeout_sec=timeout_sec,
       )
       if sampled_addresses:
         matched_codes += 1
@@ -401,9 +479,8 @@ def harvest_geonames_postal_test(
         total_addresses_added += 1
 
       print(
-          f"[{processed_records}] {pcode} ({state_code}, {country_code}): "
-          f"+{len(sampled_addresses)} address(es) via {source_mode} (total={total_addresses_added}); "
-          f"waiting {current_wait}s."
+          f"  [RESULT] +{len(sampled_addresses)} saved (from {total_valid} valid) via {source_mode} | "
+          f"total_added={total_addresses_added} | waiting {current_wait}s"
       )
     except requests.HTTPError as e:
       error_count += 1
@@ -411,14 +488,14 @@ def harvest_geonames_postal_test(
       if status in (429, 502, 503, 504):
         current_wait = max(pause_seconds * 4, 20)
       print(
-          f"[Overpass HTTP {status}] Error on {pcode} ({country_code}): {e}; "
+          f"  [Overpass HTTP {status}] {pcode} ({country_code}): {e}; "
           f"backing off {current_wait}s."
       )
     except Exception as e:
       error_count += 1
       current_wait = max(pause_seconds * 2, 10)
       print(
-          f"[Overpass Error] {pcode} ({country_code}): {e}; "
+          f"  [Overpass Error] {pcode} ({country_code}): {e}; "
           f"waiting {current_wait}s."
       )
 
@@ -430,6 +507,7 @@ def harvest_geonames_postal_test(
       _print_progress(
           processed_records=processed_records,
           limit_records=limit_records,
+          skipped_non_us=skipped_non_us,
           matched_codes=matched_codes,
           total_addresses_added=total_addresses_added,
           error_count=error_count,
@@ -442,6 +520,7 @@ def harvest_geonames_postal_test(
   _print_progress(
       processed_records=processed_records,
       limit_records=limit_records,
+      skipped_non_us=skipped_non_us,
       matched_codes=matched_codes,
       total_addresses_added=total_addresses_added,
       error_count=error_count,
@@ -451,7 +530,7 @@ def harvest_geonames_postal_test(
 
 
 @anvil.server.callable
-def start_geonames_harvest_test(limit_records=50):
+def start_geonames_harvest_test(limit_records=50, target_country="US"):
   return anvil.server.launch_background_task(
       "harvest_geonames_postal_test",
       limit_records=limit_records,
@@ -459,9 +538,14 @@ def start_geonames_harvest_test(limit_records=50):
       pause_seconds=4,
       report_every_n=10,
       report_interval_seconds=30,
+      timeout_sec=40,
+      target_country=target_country,
   )
 
 
 @anvil.server.callable
-def start_individual_harvest(limit_records=50):
-  return start_geonames_harvest_test(limit_records=limit_records)
+def start_individual_harvest(limit_records=50, target_country="US"):
+  return start_geonames_harvest_test(
+      limit_records=limit_records,
+      target_country=target_country,
+  )
