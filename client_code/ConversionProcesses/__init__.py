@@ -73,15 +73,9 @@ class ConversionProcesses(ConversionProcessesTemplate):
         except Exception as e:
             alert(f"Error starting address harvest: {e}", title="Error")
 
-    def Load_Test_Addresses_click(self, **event_args):
-        """Triggered when 'Load Test Addresses' button is clicked."""
-        try:
-            print("Launching test address loading background task...")
-            task = anvil.server.call('start_test_address_load')
-            alert("Test address load background task started successfully!", title="Background Task Launched")
-        except Exception as e:
-            alert(f"Error starting test address load: {e}", title="Error")
 
+  
+      
     def Copy_to_MapItem_Test2_click(self, **event_args):
         """Triggered when 'Copy to MapItem_Test2' button is clicked."""
         try:
@@ -208,3 +202,25 @@ class ConversionProcesses(ConversionProcessesTemplate):
         except Exception as e:
           print(f"[CLIENT] ERROR importing CA_Postal.txt: {e!r}")
           alert(f"Error importing CA_Postal.txt: {e}")
+
+
+    def load_test_addresses_click(self, **event_args):
+      """Launch the 50-record Overpass address harvest background task."""
+      btn = event_args.get("sender")
+      if btn:
+        btn.enabled = False
+
+      try:
+        task = anvil.server.call("start_geonames_harvest_test", limit_records=50)
+        task_id = task.get_id() if task and hasattr(task, "get_id") else None
+
+        msg = "Started 50-record address harvest in the background. Check the server console for progress."
+        if task_id:
+          msg = f"Started 50-record address harvest (Task: {task_id}). Check the server console for progress."
+
+        anvil.Notification(msg, title="Harvest Started", style="success").show()
+      except Exception as e:
+        anvil.alert(f"Error starting address harvest: {e}", title="Harvest Error")
+      finally:
+        if btn:
+          btn.enabled = True
