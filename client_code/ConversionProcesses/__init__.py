@@ -174,3 +174,31 @@ class ConversionProcesses(ConversionProcessesTemplate):
     def import_geonames_click(self, **event_args):
       """This method is called when the button is clicked"""
       pass  # Write Code Here
+
+    @anvil.handle("geonames_file_loader", "change")
+    def geonames_file_loader_change(self, file, **event_args):
+      """This method is called when a new file is loaded into this FileLoader"""
+      pass  # Write Code Here
+
+    def geonames_file_loader_change(self, file, **event_args):
+        """Run GeoNames TSV import when a file is selected in geonames_file_loader."""
+        if not file:
+          return
+
+        # Start with max_rows=50 to verify column mapping, then set max_rows=None (or batch) for all ~180K rows
+        BATCH_SIZE = 50
+
+        try:
+          summary = anvil.server.call(
+              "import_geonames_file",
+              file,
+              start_row=0,
+              max_rows=BATCH_SIZE,
+          )
+          alert(
+              f"Imported {summary.get('inserted')} rows "
+              f"(malformed: {summary.get('malformed')}, "
+              f"next_start_row: {summary.get('next_start_row')})."
+          )
+        except Exception as e:
+          alert(f"Error importing GeoNames file: {e}")
