@@ -198,8 +198,8 @@ class ConversionProcesses(ConversionProcessesTemplate):
               "import_geonames_file",
               file,
               start_row=0,
-              max_rows=NONE,
-              max_seconds=120.0,
+              max_rows=None,
+              max_seconds=240.0,
               log_every=10,
               use_background_task=True,
           )
