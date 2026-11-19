@@ -77,10 +77,6 @@ def _build_formatted_address(user_val, address_1, city, state, pcode, country_na
   return "/".join(segments)
 
 
-def _escape_overpass_regex(val):
-  return re.escape(val.strip())
-
-
 def _parse_overpass_elements(data, pcode, max_addresses=5):
   valid_elements = []
   for element in data.get("elements", []):
@@ -116,6 +112,18 @@ def _post_overpass(overpass_url, headers, query):
   return resp.json()
 
 
+def _build_postcode_filter(pcode, country_code):
+  clean = pcode.strip().upper()
+  ca_compact = re.sub(r"\s+", "", clean)
+  if country_code == "CA" and len(ca_compact) == 6:
+    spaced = f"{ca_compact[:3]}\\s*{ca_compact[3:]}"
+    return f'["addr:postcode"~"^{spaced}$",i]'
+  if country_code == "CA" and len(ca_compact) <= 3:
+    escaped = re.escape(ca_compact)
+    return f'["addr:postcode"~"^{escaped}(\\s|$)",i]'
+  return f'["addr:postcode"="{pcode.strip()}"]'
+
+
 def _query_overpass_addresses(
     overpass_url,
     headers,
@@ -125,16 +133,9 @@ def _query_overpass_addresses(
     geo_lon=None,
     max_addresses=5,
 ):
-  clean_pcode = pcode.strip()
-  escaped_pcode = _escape_overpass_regex(clean_pcode)
+  postcode_filter = _build_postcode_filter(pcode, country_code)
 
-  # Match exact postcode or prefix (e.g., Canadian 3-char FSA like "T2B" matching "T2B 1A1")
-  if country_code == "CA" and len(clean_pcode) <= 3:
-    postcode_filter = f'["addr:postcode"~"^{escaped_pcode}(\\s|$)",i]'
-  else:
-    postcode_filter = f'["addr:postcode"="{clean_pcode}"]'
-
-  # 1. Direct query by postal code without requiring a bounding box
+  # 1. Direct query by postal code (no bbox required)
   direct_query = f"""
   [out:json][timeout:35];
   (
@@ -144,24 +145,24 @@ def _query_overpass_addresses(
   out center tags;
   """
   data = _post_overpass(overpass_url, headers, direct_query)
-  results = _parse_overpass_elements(data, clean_pcode, max_addresses=max_addresses)
+  results = _parse_overpass_elements(data, pcode, max_addresses=max_addresses)
   if results:
     return results, "postcode"
 
-  # 2. Optional fallback using GeoNames Latitude/Longitude if available
+  # 2. Fallback around GeoNames Latitude/Longitude if exact/prefix postcode tag is absent
   if geo_lat is not None and geo_lon is not None:
     around_query = f"""
     [out:json][timeout:35];
     (
-      node(around:3000,{geo_lat},{geo_lon})["addr:street"]["addr:housenumber"];
-      way(around:3000,{geo_lat},{geo_lon})["addr:street"]["addr:housenumber"];
+      node(around:2000,{geo_lat},{geo_lon})["addr:street"]["addr:housenumber"];
+      way(around:2000,{geo_lat},{geo_lon})["addr:street"]["addr:housenumber"];
     );
     out center tags;
     """
     data_around = _post_overpass(overpass_url, headers, around_query)
-    results_around = _parse_overpass_elements(data_around, clean_pcode, max_addresses=max_addresses)
+    results_around = _parse_overpass_elements(data_around, pcode, max_addresses=max_addresses)
     if results_around:
-      return results_around, "around_3km"
+      return results_around, "around_2km"
 
   return [], "none"
 
@@ -331,14 +332,14 @@ def harvest_geonames_postal_test(
 ):
   overpass_url = "https://overpass.openstreetmap.fr/api/interpreter"
   headers = {
-      "User-Agent": "AnvilGeoNamesHarvester/1.7 (contact: admin@app.com)"
+      "User-Agent": "AnvilGeoNamesHarvester/1.9 (contact: admin@app.com)"
   }
 
   start_time = time.time()
   last_report_time = start_time
   print(
-      f"Starting direct Overpass harvest (no bbox required; limit={limit_records}, "
-      f"max_per_code={max_addresses_per_code}, pause={pause_seconds}s)..."
+      f"Starting Overpass harvest from Data_Geonames_Postal "
+      f"(limit={limit_records}, max_per_code={max_addresses_per_code}, pause={pause_seconds}s)..."
   )
 
   rows = app_tables.data_geonames_postal.search()
