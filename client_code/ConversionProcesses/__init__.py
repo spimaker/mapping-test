@@ -177,26 +177,34 @@ class ConversionProcesses(ConversionProcessesTemplate):
 
     @anvil.handle("geonames_file_loader", "change")
     def geonames_file_loader_change(self, file, **event_args):
-        """Run GeoNames TSV import when a file is selected in geonames_file_loader."""
+        """Run GeoNames TSV import when CA_Postal.txt is selected in geonames_file_loader."""
+        print(f"[CLIENT] geonames_file_loader_change fired; file={file!r}")
         if not file:
+          alert(
+              "[CLIENT] No file selected. Please choose CA_Postal.txt in"
+              " geonames_file_loader."
+          )
           return
 
-        BATCH_SIZE = 50
+        if file.name != "CA_Postal.txt":
+          print(
+              f"[CLIENT] Warning: expected CA_Postal.txt, got {file.name!r};"
+              " proceeding anyway."
+          )
 
         try:
-          summary = anvil.server.call(
-            "import_geonames_file",
-            file,
-            start_row=0,
-            max_rows=50,
-            max_seconds=15.0,
-            log_every=10,
-            use_background_task=False,
+          print("[CLIENT] Launching background import task for CA_Postal.txt...")
+          res = anvil.server.call(
+              "import_geonames_file",
+              file,
+              start_row=0,
+              max_rows=NONE,
+              max_seconds=120.0,
+              log_every=10,
+              use_background_task=True,
           )
-          alert(
-              f"Imported {summary.get('inserted')} rows "
-              f"(malformed: {summary.get('malformed')}, "
-              f"next_start_row: {summary.get('next_start_row')})."
-          )
+          print(f"[CLIENT] Server response for CA_Postal.txt: {res}")
+          alert(f"Import response (CA_Postal.txt): {res}")
         except Exception as e:
-          alert(f"Error importing GeoNames file: {e}")
+          print(f"[CLIENT] ERROR importing CA_Postal.txt: {e!r}")
+          alert(f"Error importing CA_Postal.txt: {e}")
