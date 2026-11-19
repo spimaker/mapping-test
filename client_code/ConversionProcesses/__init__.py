@@ -1,4 +1,4 @@
-from ._anvil_designer import DataConversionsTemplate
+from ._anvil_designer import ConversionProcessesTemplate
 import anvil
 import anvil.server
 import anvil.tables as tables
@@ -6,7 +6,7 @@ import anvil.tables.query as q
 from anvil.tables import app_tables
 from anvil import alert
 
-class DataConversions(DataConversionsTemplate):
+class ConversionProcesses(ConversionProcessesTemplate):
     def __init__(self, **properties):
         # Set Form properties and Data Bindings
         self.init_components(**properties)
@@ -158,3 +158,14 @@ class DataConversions(DataConversionsTemplate):
                 alert("North American DataHub regional audit started successfully in the background!", title="Task Launched")
             except Exception as e:
                 alert(f"Error starting audit: {e}", title="Error")          
+
+    def run_harvest_button_click(self, **event_args):
+      """Launch the single-state (US - AL) test background task from a button click."""
+      self.run_harvest_button.enabled = False
+      try:
+        task = anvil.server.call("start_first_state_test", "US", "AL")
+        alert("Started background test harvest for US - AL. Watch the App Logs / Background Tasks for True: and False: output.")
+      except Exception as e:
+        alert(f"Error starting test harvest: {e}")
+      finally:
+        self.run_harvest_button.enabled = True
