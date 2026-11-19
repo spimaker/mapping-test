@@ -169,3 +169,8 @@ class ConversionProcesses(ConversionProcessesTemplate):
         alert(f"Error starting test harvest: {e}")
       finally:
         self.run_harvest_button.enabled = True
+
+    @anvil.handle("import_geonames", "click")
+    def import_geonames_click(self, **event_args):
+      """This method is called when the button is clicked"""
+      pass  # Write Code Here
