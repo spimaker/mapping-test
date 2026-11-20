@@ -503,6 +503,8 @@ def _insert_map_item_and_sync(
 
 
 def _print_progress(
+    table_row_num,
+    total_table_rows,
     processed_records,
     run_target_total,
     seen_country_rows,
@@ -518,8 +520,9 @@ def _print_progress(
   elapsed = time.time() - start_time
   rate = processed_records / elapsed if elapsed > 0 else 0.0
   print(
-      f"[Progress] Run: {processed_records}/{run_target_total} | "
-      f"Overall US Rec: {seen_country_rows}/{total_country_rows} "
+      f"[Progress] Table Row: {table_row_num}/{total_table_rows} | "
+      f"Batch: {processed_records}/{run_target_total} | "
+      f"US Rec: {seen_country_rows}/{total_country_rows} "
       f"(skipped initial US: {skipped_initial_us}, non-US: {skipped_non_us}, dup pcodes: {skipped_dup_pcodes}) | "
       f"Codes with hits: {matched_codes} | "
       f"Addresses added: {total_addresses_added} | "
@@ -544,7 +547,7 @@ def harvest_geonames_postal_test(
     max_distance_km=50.0,
 ):
   headers = {
-      "User-Agent": "AnvilGeoNamesHarvester/2.10 (contact: admin@app.com)"
+      "User-Agent": "AnvilGeoNamesHarvester/2.14 (contact: admin@app.com)"
   }
   target_cc = (target_country or "US").strip().upper()
   skip_us_target = max(0, int(skip_first_us or 0))
@@ -554,6 +557,7 @@ def harvest_geonames_postal_test(
   seq_id = _get_next_seq_id(app_tables.mapitems_test)
 
   all_rows = list(app_tables.data_geonames_postal.search())
+  total_table_rows = len(all_rows)
   total_country_rows = sum(
       1
       for r in all_rows
@@ -569,13 +573,14 @@ def harvest_geonames_postal_test(
 
   print(
       f"Starting Overpass harvest from Data_Geonames_Postal for country='{target_cc}' "
-      f"(skip_first_us={skip_us_target}, total_{target_cc}={total_country_rows}, "
-      f"run_target={run_target_total}, limit={limit_records}, "
+      f"(table_rows={total_table_rows}, total_{target_cc}={total_country_rows}, "
+      f"skip_first_us={skip_us_target}, batch_target={run_target_total}, limit={limit_records}, "
       f"per_code={min_addresses_per_code}-{max_addresses_per_code} random, "
       f"dedupe_pcodes={dedupe_pcodes}, pause={pause_seconds}s, timeout=({connect_timeout}s, {read_timeout}s), "
       f"max_dist={max_distance_km}km, start_seq_id={seq_id})..."
   )
 
+  table_row_num = 0
   seen_country_rows = 0
   skipped_initial_us = 0
   skipped_non_us = 0
@@ -589,6 +594,8 @@ def harvest_geonames_postal_test(
   consecutive_failures = 0
 
   for row in all_rows:
+    table_row_num += 1
+
     if limit_records is not None and processed_records >= limit_records:
       print(f"Reached {target_cc} record limit ({limit_records}). Stopping harvest.")
       break
@@ -603,7 +610,7 @@ def harvest_geonames_postal_test(
       skipped_non_us += 1
       if skipped_non_us == 1 or skipped_non_us % 2000 == 0:
         print(
-            f"  [SKIP] Bypassed {skipped_non_us} non-{target_cc} row(s) so far "
+            f"  [SKIP] Table row {table_row_num}/{total_table_rows}: bypassed {skipped_non_us} non-{target_cc} row(s) so far "
             f"(latest: {country_code} {pcode})..."
         )
       continue
@@ -613,8 +620,8 @@ def harvest_geonames_postal_test(
       skipped_initial_us += 1
       if skipped_initial_us == 1 or skipped_initial_us == skip_us_target:
         print(
-            f"  [SKIP INITIAL {target_cc}] Bypassed {skipped_initial_us}/{skip_us_target} "
-            f"initial {target_cc} row(s) (latest: {pcode})..."
+            f"  [SKIP INITIAL {target_cc}] Table row {table_row_num}/{total_table_rows}: "
+            f"bypassed {skipped_initial_us}/{skip_us_target} initial {target_cc} row(s) (latest: {pcode})..."
         )
       continue
 
@@ -637,7 +644,7 @@ def harvest_geonames_postal_test(
     processed_records += 1
     current_wait = pause_seconds
     print(
-        f"\n[{processed_records}/{run_target_total}] (rec {seen_country_rows}/{total_country_rows}) "
+        f"\n[{table_row_num}/{total_table_rows}] (batch {processed_records}/{run_target_total}) "
         f"{target_cc} pcode='{pcode}' state='{state_code}' place='{fallback_city}' geo=({geo_lat}, {geo_lon})"
     )
 
@@ -706,6 +713,8 @@ def harvest_geonames_postal_test(
         or (now_ts - last_report_time >= report_interval_seconds)
     ):
       _print_progress(
+          table_row_num=table_row_num,
+          total_table_rows=total_table_rows,
           processed_records=processed_records,
           run_target_total=run_target_total,
           seen_country_rows=seen_country_rows,
@@ -723,6 +732,8 @@ def harvest_geonames_postal_test(
     time.sleep(current_wait)
 
   _print_progress(
+      table_row_num=table_row_num,
+      total_table_rows=total_table_rows,
       processed_records=processed_records,
       run_target_total=run_target_total,
       seen_country_rows=seen_country_rows,
