@@ -224,7 +224,7 @@ def _parse_overpass_elements(
   return selected, len(valid_elements), len(elements)
 
 
-def _post_overpass_fast(headers, query, connect_timeout=6, read_timeout=10, cooldown_sec=120):
+def _post_overpass_fast(headers, query, connect_timeout=6, read_timeout=20, cooldown_sec=120):
   now = time.time()
   start_url = next(_ENDPOINT_CYCLE)
   start_idx = OVERPASS_ENDPOINTS.index(start_url)
@@ -291,14 +291,14 @@ def _query_overpass_addresses(
     min_addresses=5,
     max_addresses=25,
     connect_timeout=6,
-    read_timeout=10,
+    read_timeout=20,
     max_distance_km=50.0,
 ):
   postcode_filter = _build_postcode_filter(pcode, country_code)
   bbox_clause = _build_bbox_clause(geo_lat, geo_lon, deg_pad=0.35)
 
   direct_query = f"""
-  [out:json][timeout:10];
+  [out:json][timeout:18];
   (
     node{postcode_filter}["addr:street"]["addr:housenumber"]{bbox_clause};
     way{postcode_filter}["addr:street"]["addr:housenumber"]{bbox_clause};
@@ -327,7 +327,7 @@ def _query_overpass_addresses(
 
   if raw_count == 0 and geo_lat is not None and geo_lon is not None:
     around_query = f"""
-    [out:json][timeout:10];
+    [out:json][timeout:18];
     (
       node(around:2000,{geo_lat},{geo_lon})["addr:street"]["addr:housenumber"];
       way(around:2000,{geo_lat},{geo_lon})["addr:street"]["addr:housenumber"];
@@ -522,8 +522,8 @@ def _print_progress(
   print(
       f"[Progress] Table Row: {table_row_num}/{total_table_rows} | "
       f"Batch: {processed_records}/{run_target_total} | "
-      f"US Rec: {seen_country_rows}/{total_country_rows} "
-      f"(skipped table rows: {skipped_table_rows}, non-US: {skipped_non_us}, dup pcodes: {skipped_dup_pcodes}) | "
+      f"Country Rec: {seen_country_rows}/{total_country_rows} "
+      f"(skipped table rows: {skipped_table_rows}, non-target country: {skipped_non_us}, dup pcodes: {skipped_dup_pcodes}) | "
       f"Codes with hits: {matched_codes} | "
       f"Addresses added: {total_addresses_added} | "
       f"Errors: {error_count} | "
@@ -542,12 +542,12 @@ def harvest_geonames_postal_test(
     report_every_n=25,
     report_interval_seconds=45,
     connect_timeout=6,
-    read_timeout=10,
+    read_timeout=20,
     target_country="US",
     max_distance_km=50.0,
 ):
   headers = {
-      "User-Agent": "AnvilGeoNamesHarvester/2.15 (contact: admin@app.com)"
+      "User-Agent": "AnvilGeoNamesHarvester/2.16 (contact: admin@app.com)"
   }
   target_cc = (target_country or "US").strip().upper()
   skip_table_target = max(0, int(skip_first_us or 0))
@@ -558,24 +558,34 @@ def harvest_geonames_postal_test(
 
   all_rows = list(app_tables.data_geonames_postal.search())
   total_table_rows = len(all_rows)
-  total_country_rows = sum(
-      1
-      for r in all_rows
-      if str(r["Country_code"] or "").strip().upper() == target_cc
-      and str(r["Postal_code"] or "").strip()
-  )
-  remaining_table_rows = max(0, total_table_rows - skip_table_target)
+
+  total_country_rows = 0
+  remaining_country_after_skip = 0
+  seen_pcodes_for_count = set()
+
+  for idx, r in enumerate(all_rows, 1):
+    cc = str(r["Country_code"] or "").strip().upper()
+    pc = str(r["Postal_code"] or "").strip()
+    if cc == target_cc and pc:
+      total_country_rows += 1
+      if idx > skip_table_target:
+        pcode_key = (cc, pc.upper())
+        if not dedupe_pcodes or pcode_key not in seen_pcodes_for_count:
+          seen_pcodes_for_count.add(pcode_key)
+          remaining_country_after_skip += 1
+
   run_target_total = (
-      min(remaining_table_rows, int(limit_records))
+      min(remaining_country_after_skip, int(limit_records))
       if limit_records is not None
-      else remaining_table_rows
+      else remaining_country_after_skip
   )
 
   print(
       f"Starting Overpass harvest from Data_Geonames_Postal for country='{target_cc}' "
       f"(table_rows={total_table_rows}, skip_from_row_1={skip_table_target}, "
-      f"total_{target_cc}={total_country_rows}, batch_target={run_target_total}, "
-      f"limit={limit_records}, per_code={min_addresses_per_code}-{max_addresses_per_code} random, "
+      f"total_{target_cc}={total_country_rows}, eligible_{target_cc}={remaining_country_after_skip}, "
+      f"batch_target={run_target_total}, limit={limit_records}, "
+      f"per_code={min_addresses_per_code}-{max_addresses_per_code} random, "
       f"dedupe_pcodes={dedupe_pcodes}, pause={pause_seconds}s, timeout=({connect_timeout}s, {read_timeout}s), "
       f"max_dist={max_distance_km}km, start_seq_id={seq_id})..."
   )
@@ -771,7 +781,7 @@ def start_geonames_harvest_test(
       report_every_n=25,
       report_interval_seconds=45,
       connect_timeout=6,
-      read_timeout=10,
+      read_timeout=20,
       target_country=target_country,
       max_distance_km=max_distance_km,
   )
@@ -793,61 +803,4 @@ def start_individual_harvest(
       target_country=target_country,
       max_distance_km=max_distance_km,
       dedupe_pcodes=dedupe_pcodes,
-      min_addresses_per_code=min_addresses_per_code,
-      max_addresses_per_code=max_addresses_per_code,
-  )
-
-
-@anvil.server.background_task
-def delete_ca_short_codes_task(report_every_n=500, pause_every_n=250, pause_seconds=0.2):
-  start_time = time.time()
-  checked = 0
-  deleted = 0
-  skipped = 0
-  stopped_on_mx = False
-
-  print("Starting CA 3-character postal code cleanup on Data_Geonames_Postal...")
-  rows = app_tables.data_geonames_postal.search()
-
-  for row in rows:
-    checked += 1
-    country_code = str(row["Country_code"] or "").strip().upper()
-    pcode = str(row["Postal_code"] or "").strip()
-
-    if country_code == "MX":
-      print(f"Reached 'MX' record at row #{checked} (Postal_code='{pcode}'). Stopping cleanup.")
-      stopped_on_mx = True
-      break
-
-    if country_code == "CA" and len(pcode) == 3:
-      row.delete()
-      deleted += 1
-    else:
-      skipped += 1
-
-    if report_every_n and checked % report_every_n == 0:
-      elapsed = time.time() - start_time
-      print(
-          f"[Cleanup Progress] Checked: {checked} | Deleted (CA 3-char): {deleted} | "
-          f"Skipped: {skipped} | Elapsed: {elapsed:.1f}s"
-      )
-
-    if pause_every_n and pause_seconds and checked % pause_every_n == 0:
-      time.sleep(pause_seconds)
-
-  elapsed = time.time() - start_time
-  print(
-      f"Cleanup finished in {elapsed:.1f}s. Checked: {checked}, "
-      f"Deleted: {deleted}, Skipped: {skipped}, Stopped on MX: {stopped_on_mx}."
-  )
-  return {
-      "checked": checked,
-      "deleted": deleted,
-      "skipped": skipped,
-      "stopped_on_mx": stopped_on_mx,
-  }
-
-
-@anvil.server.callable
-def start_delete_ca_short_codes():
-  return anvil.server.launch_background_task("delete_ca_short_codes_task")
+      min_addresses
