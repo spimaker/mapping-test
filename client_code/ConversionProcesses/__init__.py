@@ -214,7 +214,7 @@ class ConversionProcesses(ConversionProcessesTemplate):
             task = anvil.server.call(
                 "start_geonames_harvest_test",
                 limit_records=None,
-                skip_first_us=2860,
+                skip_first_us=22515,
                 target_country="US",
             )
             task_id = task.get_id() if task and hasattr(task, "get_id") else None

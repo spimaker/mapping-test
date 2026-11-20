@@ -509,7 +509,7 @@ def _print_progress(
     run_target_total,
     seen_country_rows,
     total_country_rows,
-    skipped_initial_us,
+    skipped_table_rows,
     skipped_non_us,
     skipped_dup_pcodes,
     matched_codes,
@@ -523,7 +523,7 @@ def _print_progress(
       f"[Progress] Table Row: {table_row_num}/{total_table_rows} | "
       f"Batch: {processed_records}/{run_target_total} | "
       f"US Rec: {seen_country_rows}/{total_country_rows} "
-      f"(skipped initial US: {skipped_initial_us}, non-US: {skipped_non_us}, dup pcodes: {skipped_dup_pcodes}) | "
+      f"(skipped table rows: {skipped_table_rows}, non-US: {skipped_non_us}, dup pcodes: {skipped_dup_pcodes}) | "
       f"Codes with hits: {matched_codes} | "
       f"Addresses added: {total_addresses_added} | "
       f"Errors: {error_count} | "
@@ -534,7 +534,7 @@ def _print_progress(
 @anvil.server.background_task
 def harvest_geonames_postal_test(
     limit_records=None,
-    skip_first_us=13,
+    skip_first_us=0,
     dedupe_pcodes=True,
     min_addresses_per_code=5,
     max_addresses_per_code=25,
@@ -547,10 +547,10 @@ def harvest_geonames_postal_test(
     max_distance_km=50.0,
 ):
   headers = {
-      "User-Agent": "AnvilGeoNamesHarvester/2.14 (contact: admin@app.com)"
+      "User-Agent": "AnvilGeoNamesHarvester/2.15 (contact: admin@app.com)"
   }
   target_cc = (target_country or "US").strip().upper()
-  skip_us_target = max(0, int(skip_first_us or 0))
+  skip_table_target = max(0, int(skip_first_us or 0))
 
   start_time = time.time()
   last_report_time = start_time
@@ -564,25 +564,25 @@ def harvest_geonames_postal_test(
       if str(r["Country_code"] or "").strip().upper() == target_cc
       and str(r["Postal_code"] or "").strip()
   )
-  remaining_country_rows = max(0, total_country_rows - skip_us_target)
+  remaining_table_rows = max(0, total_table_rows - skip_table_target)
   run_target_total = (
-      min(remaining_country_rows, int(limit_records))
+      min(remaining_table_rows, int(limit_records))
       if limit_records is not None
-      else remaining_country_rows
+      else remaining_table_rows
   )
 
   print(
       f"Starting Overpass harvest from Data_Geonames_Postal for country='{target_cc}' "
-      f"(table_rows={total_table_rows}, total_{target_cc}={total_country_rows}, "
-      f"skip_first_us={skip_us_target}, batch_target={run_target_total}, limit={limit_records}, "
-      f"per_code={min_addresses_per_code}-{max_addresses_per_code} random, "
+      f"(table_rows={total_table_rows}, skip_from_row_1={skip_table_target}, "
+      f"total_{target_cc}={total_country_rows}, batch_target={run_target_total}, "
+      f"limit={limit_records}, per_code={min_addresses_per_code}-{max_addresses_per_code} random, "
       f"dedupe_pcodes={dedupe_pcodes}, pause={pause_seconds}s, timeout=({connect_timeout}s, {read_timeout}s), "
       f"max_dist={max_distance_km}km, start_seq_id={seq_id})..."
   )
 
   table_row_num = 0
   seen_country_rows = 0
-  skipped_initial_us = 0
+  skipped_table_rows = 0
   skipped_non_us = 0
   skipped_dup_pcodes = 0
   seen_pcodes = set()
@@ -595,6 +595,15 @@ def harvest_geonames_postal_test(
 
   for row in all_rows:
     table_row_num += 1
+
+    if table_row_num <= skip_table_target:
+      skipped_table_rows += 1
+      if skipped_table_rows == 1 or skipped_table_rows == skip_table_target or skipped_table_rows % 2000 == 0:
+        print(
+            f"  [SKIP TABLE ROW] Table row {table_row_num}/{total_table_rows}: "
+            f"bypassed {skipped_table_rows}/{skip_table_target} initial table row(s)..."
+        )
+      continue
 
     if limit_records is not None and processed_records >= limit_records:
       print(f"Reached {target_cc} record limit ({limit_records}). Stopping harvest.")
@@ -616,14 +625,6 @@ def harvest_geonames_postal_test(
       continue
 
     seen_country_rows += 1
-    if seen_country_rows <= skip_us_target:
-      skipped_initial_us += 1
-      if skipped_initial_us == 1 or skipped_initial_us == skip_us_target:
-        print(
-            f"  [SKIP INITIAL {target_cc}] Table row {table_row_num}/{total_table_rows}: "
-            f"bypassed {skipped_initial_us}/{skip_us_target} initial {target_cc} row(s) (latest: {pcode})..."
-        )
-      continue
 
     pcode_key = (country_code, pcode.upper())
     if dedupe_pcodes and pcode_key in seen_pcodes:
@@ -719,7 +720,7 @@ def harvest_geonames_postal_test(
           run_target_total=run_target_total,
           seen_country_rows=seen_country_rows,
           total_country_rows=total_country_rows,
-          skipped_initial_us=skipped_initial_us,
+          skipped_table_rows=skipped_table_rows,
           skipped_non_us=skipped_non_us,
           skipped_dup_pcodes=skipped_dup_pcodes,
           matched_codes=matched_codes,
@@ -738,7 +739,7 @@ def harvest_geonames_postal_test(
       run_target_total=run_target_total,
       seen_country_rows=seen_country_rows,
       total_country_rows=total_country_rows,
-      skipped_initial_us=skipped_initial_us,
+      skipped_table_rows=skipped_table_rows,
       skipped_non_us=skipped_non_us,
       skipped_dup_pcodes=skipped_dup_pcodes,
       matched_codes=matched_codes,
@@ -752,7 +753,7 @@ def harvest_geonames_postal_test(
 @anvil.server.callable
 def start_geonames_harvest_test(
     limit_records=None,
-    skip_first_us=13,
+    skip_first_us=0,
     target_country="US",
     max_distance_km=50.0,
     dedupe_pcodes=True,
@@ -779,7 +780,7 @@ def start_geonames_harvest_test(
 @anvil.server.callable
 def start_individual_harvest(
     limit_records=None,
-    skip_first_us=13,
+    skip_first_us=0,
     target_country="US",
     max_distance_km=50.0,
     dedupe_pcodes=True,
