@@ -140,7 +140,8 @@ def _check_area_match(lat, lon, geo_lat, geo_lon, max_distance_km=50.0, max_deg_
 def _parse_overpass_elements(
     data,
     pcode,
-    max_addresses=5,
+    min_addresses=5,
+    max_addresses=25,
     geo_lat=None,
     geo_lon=None,
     max_distance_km=50.0,
@@ -203,10 +204,15 @@ def _parse_overpass_elements(
   else:
     print(f"    [ELEMENTS] Inspected {len(elements)} raw elements; 0 rejected.")
 
-  if len(valid_elements) <= max_addresses:
+  low = max(0, int(min_addresses))
+  high = max(low, int(max_addresses))
+  target_pick_count = random.randint(low, high)
+  print(f"    [SAMPLE TARGET] Random pick target for '{pcode}': {target_pick_count} (range {low}-{high})")
+
+  if len(valid_elements) <= target_pick_count:
     selected = valid_elements
   else:
-    selected = random.sample(valid_elements, max_addresses)
+    selected = random.sample(valid_elements, target_pick_count)
 
   for idx, item in enumerate(selected, 1):
     print(
@@ -282,7 +288,8 @@ def _query_overpass_addresses(
     country_code="",
     geo_lat=None,
     geo_lon=None,
-    max_addresses=5,
+    min_addresses=5,
+    max_addresses=25,
     connect_timeout=6,
     read_timeout=10,
     max_distance_km=50.0,
@@ -309,6 +316,7 @@ def _query_overpass_addresses(
   results, total_valid, raw_count = _parse_overpass_elements(
       data,
       pcode,
+      min_addresses=min_addresses,
       max_addresses=max_addresses,
       geo_lat=geo_lat,
       geo_lon=geo_lon,
@@ -337,6 +345,7 @@ def _query_overpass_addresses(
     results_around, total_around_valid, _ = _parse_overpass_elements(
         data_around,
         pcode,
+        min_addresses=min_addresses,
         max_addresses=max_addresses,
         geo_lat=geo_lat,
         geo_lon=geo_lon,
@@ -495,7 +504,9 @@ def _insert_map_item_and_sync(
 
 def _print_progress(
     processed_records,
-    limit_records,
+    run_target_total,
+    seen_country_rows,
+    total_country_rows,
     skipped_initial_us,
     skipped_non_us,
     skipped_dup_pcodes,
@@ -506,9 +517,9 @@ def _print_progress(
 ):
   elapsed = time.time() - start_time
   rate = processed_records / elapsed if elapsed > 0 else 0.0
-  limit_str = str(limit_records) if limit_records is not None else "ALL"
   print(
-      f"[Progress] US Queried: {processed_records}/{limit_str} "
+      f"[Progress] Run: {processed_records}/{run_target_total} | "
+      f"Overall US Rec: {seen_country_rows}/{total_country_rows} "
       f"(skipped initial US: {skipped_initial_us}, non-US: {skipped_non_us}, dup pcodes: {skipped_dup_pcodes}) | "
       f"Codes with hits: {matched_codes} | "
       f"Addresses added: {total_addresses_added} | "
@@ -520,9 +531,10 @@ def _print_progress(
 @anvil.server.background_task
 def harvest_geonames_postal_test(
     limit_records=None,
-    skip_first_us=0,
+    skip_first_us=13,
     dedupe_pcodes=True,
-    max_addresses_per_code=5,
+    min_addresses_per_code=5,
+    max_addresses_per_code=25,
     pause_seconds=3,
     report_every_n=25,
     report_interval_seconds=45,
@@ -532,7 +544,7 @@ def harvest_geonames_postal_test(
     max_distance_km=50.0,
 ):
   headers = {
-      "User-Agent": "AnvilGeoNamesHarvester/2.8 (contact: admin@app.com)"
+      "User-Agent": "AnvilGeoNamesHarvester/2.10 (contact: admin@app.com)"
   }
   target_cc = (target_country or "US").strip().upper()
   skip_us_target = max(0, int(skip_first_us or 0))
@@ -541,16 +553,30 @@ def harvest_geonames_postal_test(
   last_report_time = start_time
   seq_id = _get_next_seq_id(app_tables.mapitems_test)
 
+  all_rows = list(app_tables.data_geonames_postal.search())
+  total_country_rows = sum(
+      1
+      for r in all_rows
+      if str(r["Country_code"] or "").strip().upper() == target_cc
+      and str(r["Postal_code"] or "").strip()
+  )
+  remaining_country_rows = max(0, total_country_rows - skip_us_target)
+  run_target_total = (
+      min(remaining_country_rows, int(limit_records))
+      if limit_records is not None
+      else remaining_country_rows
+  )
+
   print(
       f"Starting Overpass harvest from Data_Geonames_Postal for country='{target_cc}' "
-      f"(skip_first_us={skip_us_target}, limit={limit_records}, max_per_code={max_addresses_per_code}, "
+      f"(skip_first_us={skip_us_target}, total_{target_cc}={total_country_rows}, "
+      f"run_target={run_target_total}, limit={limit_records}, "
+      f"per_code={min_addresses_per_code}-{max_addresses_per_code} random, "
       f"dedupe_pcodes={dedupe_pcodes}, pause={pause_seconds}s, timeout=({connect_timeout}s, {read_timeout}s), "
       f"max_dist={max_distance_km}km, start_seq_id={seq_id})..."
   )
 
-  rows = app_tables.data_geonames_postal.search()
-
-  seen_us_rows = 0
+  seen_country_rows = 0
   skipped_initial_us = 0
   skipped_non_us = 0
   skipped_dup_pcodes = 0
@@ -562,7 +588,7 @@ def harvest_geonames_postal_test(
   error_count = 0
   consecutive_failures = 0
 
-  for row in rows:
+  for row in all_rows:
     if limit_records is not None and processed_records >= limit_records:
       print(f"Reached {target_cc} record limit ({limit_records}). Stopping harvest.")
       break
@@ -582,13 +608,13 @@ def harvest_geonames_postal_test(
         )
       continue
 
-    seen_us_rows += 1
-    if seen_us_rows <= skip_us_target:
+    seen_country_rows += 1
+    if seen_country_rows <= skip_us_target:
       skipped_initial_us += 1
       if skipped_initial_us == 1 or skipped_initial_us == skip_us_target:
         print(
-            f"  [SKIP INITIAL US] Bypassed {skipped_initial_us}/{skip_us_target} initial {target_cc} "
-            f"row(s) (latest: {pcode})..."
+            f"  [SKIP INITIAL {target_cc}] Bypassed {skipped_initial_us}/{skip_us_target} "
+            f"initial {target_cc} row(s) (latest: {pcode})..."
         )
       continue
 
@@ -610,10 +636,9 @@ def harvest_geonames_postal_test(
 
     processed_records += 1
     current_wait = pause_seconds
-    limit_label = str(limit_records) if limit_records is not None else "ALL"
     print(
-        f"\n[{processed_records}/{limit_label}] {target_cc} pcode='{pcode}' state='{state_code}' "
-        f"place='{fallback_city}' geo=({geo_lat}, {geo_lon})"
+        f"\n[{processed_records}/{run_target_total}] (rec {seen_country_rows}/{total_country_rows}) "
+        f"{target_cc} pcode='{pcode}' state='{state_code}' place='{fallback_city}' geo=({geo_lat}, {geo_lon})"
     )
 
     try:
@@ -623,6 +648,7 @@ def harvest_geonames_postal_test(
           country_code=country_code,
           geo_lat=geo_lat,
           geo_lon=geo_lon,
+          min_addresses=min_addresses_per_code,
           max_addresses=max_addresses_per_code,
           connect_timeout=connect_timeout,
           read_timeout=read_timeout,
@@ -681,7 +707,9 @@ def harvest_geonames_postal_test(
     ):
       _print_progress(
           processed_records=processed_records,
-          limit_records=limit_records,
+          run_target_total=run_target_total,
+          seen_country_rows=seen_country_rows,
+          total_country_rows=total_country_rows,
           skipped_initial_us=skipped_initial_us,
           skipped_non_us=skipped_non_us,
           skipped_dup_pcodes=skipped_dup_pcodes,
@@ -696,7 +724,9 @@ def harvest_geonames_postal_test(
 
   _print_progress(
       processed_records=processed_records,
-      limit_records=limit_records,
+      run_target_total=run_target_total,
+      seen_country_rows=seen_country_rows,
+      total_country_rows=total_country_rows,
       skipped_initial_us=skipped_initial_us,
       skipped_non_us=skipped_non_us,
       skipped_dup_pcodes=skipped_dup_pcodes,
@@ -711,17 +741,20 @@ def harvest_geonames_postal_test(
 @anvil.server.callable
 def start_geonames_harvest_test(
     limit_records=None,
-    skip_first_us=0,
+    skip_first_us=13,
     target_country="US",
     max_distance_km=50.0,
     dedupe_pcodes=True,
+    min_addresses_per_code=5,
+    max_addresses_per_code=25,
 ):
   return anvil.server.launch_background_task(
       "harvest_geonames_postal_test",
       limit_records=limit_records,
       skip_first_us=skip_first_us,
       dedupe_pcodes=dedupe_pcodes,
-      max_addresses_per_code=5,
+      min_addresses_per_code=min_addresses_per_code,
+      max_addresses_per_code=max_addresses_per_code,
       pause_seconds=3,
       report_every_n=25,
       report_interval_seconds=45,
@@ -735,10 +768,12 @@ def start_geonames_harvest_test(
 @anvil.server.callable
 def start_individual_harvest(
     limit_records=None,
-    skip_first_us=0,
+    skip_first_us=13,
     target_country="US",
     max_distance_km=50.0,
     dedupe_pcodes=True,
+    min_addresses_per_code=5,
+    max_addresses_per_code=25,
 ):
   return start_geonames_harvest_test(
       limit_records=limit_records,
@@ -746,6 +781,8 @@ def start_individual_harvest(
       target_country=target_country,
       max_distance_km=max_distance_km,
       dedupe_pcodes=dedupe_pcodes,
+      min_addresses_per_code=min_addresses_per_code,
+      max_addresses_per_code=max_addresses_per_code,
   )
 
 
