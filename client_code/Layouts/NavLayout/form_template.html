@@ -1,0 +1,45 @@
+<anvil-form layout="Mapping_Test.Layouts.BaseLayout">
+  <anvil-block slot="actions"></anvil-block>
+  <anvil-block slot="content">
+    <style>
+  .nlc-grid-3-9 {
+    display: grid;
+    grid-template-columns: minmax(180px, 25%) 1fr;
+    gap: 16px;
+    align-items: start;
+    width: 100%;
+    max-width: 100%;
+    margin-left: 0;
+    margin-right: 0;
+  }
+  /* Pull the grid flush with the left edge of the main content region */
+  .nlc-grid-3-9 {
+    box-sizing: border-box;
+  }
+  .content .anvil-container:has(.nlc-grid-3-9),
+  .anvil-inject-slot:has(.nlc-grid-3-9),
+  main .anvil-container:has(.nlc-grid-3-9) {
+    max-width: 100% !important;
+    width: 100% !important;
+    margin-left: 0 !important;
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+</style>
+    <div class="nlc-grid-3-9">
+      <div>
+        <anvil-component type="ColumnPanel" name="column_panel_1" prop:role="card">
+          <anvil-component type="Link" name="about_link" prop:text="About the Naturist Map"></anvil-component>
+          <anvil-component type="Link" name="view_scorecard_link" prop:text="View the Scorecard"></anvil-component>
+          <anvil-component type="Link" name="view_map_link" prop:text="View the Map"></anvil-component>
+        </anvil-component>
+      </div>
+      <div>
+        <anvil-slot name="content"></anvil-slot>
+      </div>
+    </div>
+  </anvil-block>
+  <anvil-block slot="title">
+    <anvil-slot name="title"></anvil-slot>
+  </anvil-block>
+</anvil-form>
