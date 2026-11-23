@@ -1,55 +1,332 @@
 from ._anvil_designer import MapEntryTemplate
 import anvil.server
+import anvil.js
 from anvil import alert
+import math
 
 
 class MapEntry(MapEntryTemplate):
     def __init__(self, **properties):
         self.init_components(**properties)
         self.last_saved_record_id = None
+        self._refresh_lock = False
+        self._loading_map = False
+        self._initial_centered = False
+        self._last_viewport_sig = None
+        self._debounce_timeout_id = None
+        self._debounce_callback = self._run_debounced_refresh
+        self._js_gmap = None
+        self._radial_prompt_shown = False
+        self._last_radial_zoom = None
+        self._radius_selected = False
 
-        # Toggle between MapItems_Test (True) and MapItems (False)
         self.use_test_table = True
 
-        # set border on Info_Link
         self.Info_Link.role = 'input-border'
 
-        # Hide radius controls by default on startup
         self.Threshold_Label.visible = False
         self.Threshold_Dropdown.visible = False
-       
+
         try:
             self.Country_Code_Value.items = anvil.server.call('get_country_list')
         except Exception as e:
-            pass
+            print(f"get_country_list error: {e}")
 
-        # Set default cluster type to Country and load map display
         if hasattr(self, 'Cluster_Type_Dropdown'):
             self.Cluster_Type_Dropdown.selected_value = 'Country'
 
-        self.refresh_map_display(cluster_type='Country')
+        self.refresh_map_display(cluster_type='Country', force=True)
 
-        # Populate the legend repeating panel items
+        for evt in ('bounds_changed', 'zoom_changed', 'dragend', 'idle'):
+            try:
+                self.map_1.set_event_handler(evt, lambda e=evt, **kw: self._on_map_viewport_change(evt_name=e, **kw))
+            except Exception as ex:
+                print(f"Failed attaching {evt}: {ex}")
+
         self.repeating_panel_1.items = [
-             {'range': '1 – 999 records', 'role': 'swatch-8'},
-             {'range': '1,000 – 9,999 records', 'role': 'swatch-10'},
-             {'range': '10,000 – 99,999 records', 'role': 'swatch-12'},
-             {'range': '100,000 – 249,999 records', 'role': 'swatch-16'},
-             {'range': '250,000 – 999,999 records', 'role': 'swatch-18'},
-             {'range': '1,000,000+ records', 'role': 'swatch-20'},
+            {'range': '1 – 999 records', 'role': 'swatch-8'},
+            {'range': '1,000 – 9,999 records', 'role': 'swatch-10'},
+            {'range': '10,000 – 99,999 records', 'role': 'swatch-12'},
+            {'range': '100,000 – 249,999 records', 'role': 'swatch-16'},
+            {'range': '250,000 – 999,999 records', 'role': 'swatch-18'},
+            {'range': '1,000,000+ records', 'role': 'swatch-20'},
         ]
-    
+
+    @staticmethod
+    def _is_radial_mode(cluster_type):
+        return bool(cluster_type and str(cluster_type).strip().lower() in ['miles', 'kilometers', 'mi', 'km'])
+
+    @staticmethod
+    def _haversine_km(lat1, lon1, lat2, lon2):
+        r = 6371.0
+        dlat = math.radians(lat2 - lat1)
+        dlon = math.radians(lon2 - lon1)
+        a = (
+            math.sin(dlat / 2.0) ** 2
+            + math.cos(math.radians(lat1))
+            * math.cos(math.radians(lat2))
+            * math.sin(dlon / 2.0) ** 2
+        )
+        return r * 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
+
+    def _get_viewport_width_in_unit(self, bounds, cluster_type):
+        if not bounds:
+            return None
+        try:
+            north = float(bounds['north'])
+            south = float(bounds['south'])
+            east = float(bounds['east'])
+            west = float(bounds['west'])
+            mid_lat = (north + south) / 2.0
+            width_km = self._haversine_km(mid_lat, west, mid_lat, east)
+            unit = str(cluster_type or '').strip().lower()
+            if unit in ['miles', 'mi']:
+                return width_km / 1.60934
+            return width_km
+        except Exception:
+            return None
+
+    def _find_js_gmap(self):
+        if self._js_gmap is not None:
+            return self._js_gmap
+
+        for attr_name in ('_map', 'map', '_gmap', 'gmap'):
+            obj = getattr(self.map_1, attr_name, None)
+            if obj is not None and (hasattr(obj, 'getBounds') or hasattr(obj, 'getZoom')):
+                self._js_gmap = obj
+                return self._js_gmap
+
+        try:
+            for k, v in getattr(self.map_1, '__dict__', {}).items():
+                if v is not None and (hasattr(v, 'getBounds') or hasattr(v, 'getZoom')):
+                    self._js_gmap = v
+                    return self._js_gmap
+        except Exception:
+            pass
+
+        try:
+            dom_node = anvil.js.get_dom_node(self.map_1)
+            found = anvil.js.call_js(
+                """
+                (function(root) {
+                    if (!root) return null;
+                    var queue = [root];
+                    var seen = new Set();
+                    while (queue.length > 0) {
+                        var el = queue.shift();
+                        if (!el || seen.has(el)) continue;
+                        seen.add(el);
+                        var keys = Object.getOwnPropertyNames(el);
+                        for (var i = 0; i < keys.length; i++) {
+                            var val = el[keys[i]];
+                            if (val && typeof val === 'object' && typeof val.getBounds === 'function' && typeof val.getZoom === 'function') {
+                                return val;
+                            }
+                        }
+                        if (el.children) {
+                            for (var c = 0; c < el.children.length; c++) {
+                                queue.push(el.children[c]);
+                            }
+                        }
+                    }
+                    return null;
+                })
+                """,
+                dom_node
+            )
+            if found is not None:
+                self._js_gmap = found
+                return self._js_gmap
+        except Exception:
+            pass
+
+        return None
+
+    def _extract_bounds_from_obj(self, b):
+        if not b:
+            return None
+        try:
+            if hasattr(b, 'north') and hasattr(b, 'south') and hasattr(b, 'east') and hasattr(b, 'west'):
+                return {
+                    'north': round(float(b.north), 5),
+                    'south': round(float(b.south), 5),
+                    'east': round(float(b.east), 5),
+                    'west': round(float(b.west), 5),
+                }
+            if hasattr(b, 'getNorthEast') and hasattr(b, 'getSouthWest'):
+                ne = b.getNorthEast()
+                sw = b.getSouthWest()
+                n_lat = ne.lat() if callable(getattr(ne, 'lat', None)) else ne.lat
+                e_lng = ne.lng() if callable(getattr(ne, 'lng', None)) else ne.lng
+                s_lat = sw.lat() if callable(getattr(sw, 'lat', None)) else sw.lat
+                w_lng = sw.lng() if callable(getattr(sw, 'lng', None)) else sw.lng
+                return {
+                    'north': round(float(n_lat), 5),
+                    'east': round(float(e_lng), 5),
+                    'south': round(float(s_lat), 5),
+                    'west': round(float(w_lng), 5),
+                }
+        except Exception:
+            pass
+        return None
+
+    def _get_current_center(self):
+        try:
+            c = getattr(self.map_1, 'center', None)
+            if c is not None:
+                lat = c.lat() if callable(getattr(c, 'lat', None)) else getattr(c, 'lat', None)
+                lng = c.lng() if callable(getattr(c, 'lng', None)) else getattr(c, 'lng', None)
+                if lat is not None and lng is not None:
+                    return {'lat': round(float(lat), 5), 'lon': round(float(lng), 5)}
+        except Exception:
+            pass
+
+        gmap = self._find_js_gmap()
+        if gmap is not None and hasattr(gmap, 'getCenter'):
+            try:
+                c = gmap.getCenter()
+                if c is not None:
+                    lat = c.lat() if callable(getattr(c, 'lat', None)) else getattr(c, 'lat', None)
+                    lng = c.lng() if callable(getattr(c, 'lng', None)) else getattr(c, 'lng', None)
+                    if lat is not None and lng is not None:
+                        return {'lat': round(float(lat), 5), 'lon': round(float(lng), 5)}
+            except Exception:
+                pass
+        return None
+
+    def _get_current_zoom_and_bounds(self):
+        zoom_level = None
+        bounds = None
+
+        if hasattr(self.map_1, 'zoom'):
+            try:
+                zoom_level = self.map_1.zoom
+            except Exception:
+                zoom_level = None
+
+        if hasattr(self.map_1, 'get_bounds'):
+            try:
+                bounds = self._extract_bounds_from_obj(self.map_1.get_bounds())
+            except Exception:
+                bounds = None
+
+        gmap = self._find_js_gmap()
+        if gmap is not None:
+            try:
+                if zoom_level is None and hasattr(gmap, 'getZoom'):
+                    z_val = gmap.getZoom()
+                    if callable(z_val):
+                        z_val = z_val()
+                    zoom_level = z_val
+            except Exception:
+                pass
+            try:
+                if bounds is None and hasattr(gmap, 'getBounds'):
+                    b_val = gmap.getBounds()
+                    if callable(b_val):
+                        b_val = b_val()
+                    bounds = self._extract_bounds_from_obj(b_val)
+            except Exception:
+                pass
+
+        if bounds is None and zoom_level is not None:
+            center = self._get_current_center()
+            if center is not None:
+                try:
+                    z_num = max(1.0, float(zoom_level))
+                    lat_half = 170.0 / (2.0 ** z_num)
+                    lon_half = 360.0 / (2.0 ** z_num)
+                    bounds = {
+                        'north': round(min(85.0, center['lat'] + lat_half), 5),
+                        'south': round(max(-85.0, center['lat'] - lat_half), 5),
+                        'east': round(min(180.0, center['lon'] + lon_half), 5),
+                        'west': round(max(-180.0, center['lon'] - lon_half), 5),
+                    }
+                except Exception:
+                    pass
+
+        return zoom_level, bounds
+
+    def _clear_debounce_timeout(self):
+        if self._debounce_timeout_id is not None:
+            try:
+                anvil.js.window.clearTimeout(self._debounce_timeout_id)
+            except Exception:
+                pass
+            self._debounce_timeout_id = None
+
+    def _on_map_viewport_change(self, evt_name='viewport', **event_args):
+        if self._refresh_lock or self._loading_map:
+            return
+        self._clear_debounce_timeout()
+        self._debounce_timeout_id = anvil.js.window.setTimeout(self._debounce_callback, 450)
+
+    def _run_debounced_refresh(self):
+        self._debounce_timeout_id = None
+        if self._refresh_lock or self._loading_map:
+            return
+        cluster_val = (
+            self.Cluster_Type_Dropdown.selected_value
+            if hasattr(self, 'Cluster_Type_Dropdown')
+            else 'Country'
+        )
+        dist_val = (
+            self.Threshold_Dropdown.selected_value
+            if hasattr(self, 'Threshold_Dropdown')
+            else None
+        )
+        self.refresh_map_display(cluster_type=cluster_val, distance_value=dist_val)
+
+    def _show_paginated_user_alert(self, cluster_title, all_users):
+        unique_users = sorted(list({u for u in (all_users or []) if u}))
+        total_count = len(unique_users)
+        if not unique_users:
+            unique_users = ['Unknown User']
+
+        current_page = 1
+        page_size = 100
+        total_pages = max(1, math.ceil(total_count / page_size)) if total_count > 0 else 1
+
+        while True:
+            current_page = max(1, min(current_page, total_pages))
+            start_idx = (current_page - 1) * page_size
+            end_idx = start_idx + page_size
+            page_users = unique_users[start_idx:end_idx]
+
+            disp_start = ((current_page - 1) * page_size) + 1 if total_count > 0 else 0
+            disp_end = min(current_page * page_size, total_count)
+
+            formatted_users = "\n".join([f"• {u}" for u in page_users])
+            page_info = f"Page {current_page} of {total_pages} (Showing {disp_start}-{disp_end} of {total_count})"
+            content = f"{cluster_title}\n\n{page_info}\n\n{formatted_users}"
+
+            buttons = []
+            if current_page > 1:
+                buttons.append(("Previous", "prev"))
+            if current_page < total_pages:
+                buttons.append(("Next", "next"))
+            buttons.append(("Close", None))
+
+            action = alert(content=content, title="Cluster Users", large=True, buttons=buttons)
+
+            if action == "next":
+                current_page += 1
+            elif action == "prev":
+                current_page -= 1
+            else:
+                break
+
     def clear_button_click(self, **event_args):
         self.User_Name_Value.text = ""
         self.Country_Code_Value.selected_value = None
         self.State_Province_Region_Value.selected_value = None
         self.City_Value.selected_value = None
         self.City_Value.items = [("<Select City>", None)]
-      
+
         self.Custom_City_Label.visible = False
         self.Custom_City_TextBox.visible = False
         self.Custom_City_TextBox.text = ""
-      
+
         self.Postal_Code_Value.text = ""
         self.Address1_Value.text = ""
         self.Address2_Value.text = ""
@@ -61,8 +338,8 @@ class MapEntry(MapEntryTemplate):
         try:
             selected_city = self.City_Value.selected_value
             final_city = (
-                self.Custom_City_TextBox.text 
-                if selected_city == "MANUAL_ENTRY" 
+                self.Custom_City_TextBox.text
+                if selected_city == "MANUAL_ENTRY"
                 else selected_city
             )
 
@@ -80,15 +357,15 @@ class MapEntry(MapEntryTemplate):
             }
 
             saved_id = anvil.server.call(
-                'save_map_item', 
+                'save_map_item',
                 None,
-                record_data, 
+                record_data,
                 use_test_table=self.use_test_table
             )
             if saved_id:
                 table_label = "MapItems_Test" if self.use_test_table else "MapItems"
                 alert(f"Record saved successfully to {table_label}!")
-                self.refresh_map_display(active_record_id=saved_id)
+                self.refresh_map_display(active_record_id=saved_id, force=True)
         except Exception as e:
             alert(f'Error saving record: {e}')
 
@@ -111,18 +388,117 @@ class MapEntry(MapEntryTemplate):
             print(f'Error during search: {e}')
 
     def full_screen_map_button_click(self, **event_args):
-        try:
-            anvil.open_form('FullScreenMapForm')
-        except Exception as e:
-            print(f'Error opening full screen map: {e}')
+            print("[FS_DIAG] full_screen_map_button_click fired")
+            try:
+                gmap = self._find_js_gmap()
+                print(f"[FS_DIAG] gmap={gmap is not None}, has_setOptions={hasattr(gmap, 'setOptions') if gmap else False}, has_getDiv={hasattr(gmap, 'getDiv') if gmap else False}")
 
+                if gmap is not None and hasattr(gmap, 'setOptions'):
+                    try:
+                        gmap.setOptions({'fullscreenControl': True})
+                        print("[FS_DIAG] setOptions({'fullscreenControl': True}) succeeded")
+                    except Exception as opt_err:
+                        print(f"[FS_DIAG] setOptions failed: {opt_err}")
+
+                dom_node = anvil.js.get_dom_node(self.map_1)
+                print(f"[FS_DIAG] dom_node={dom_node is not None}")
+
+                diag_result = anvil.js.call_js(
+                    """
+                (function(root, gmapObj) {
+                    var info = {
+                        hasDoc: typeof document !== 'undefined',
+                        hasFullscreenEnabled: !!(document && document.fullscreenEnabled),
+                        currentFullscreenEl: (document && document.fullscreenElement) ? (document.fullscreenElement.tagName + '#' + (document.fullscreenElement.id || '')) : null,
+                        targetTag: null,
+                        targetHasReqFs: false,
+                        foundBtnLabel: null,
+                        actionTaken: 'none',
+                        errorMsg: null
+                    };
+
+                    function findFullscreenButton(startNode) {
+                        if (!startNode) return null;
+                        var queue = [startNode];
+                        var visited = new Set();
+                        while (queue.length > 0) {
+                            var node = queue.shift();
+                            if (!node || visited.has(node)) continue;
+                            visited.add(node);
+
+                            if (node.tagName === 'BUTTON') {
+                                var label = (node.getAttribute('aria-label') || node.title || '').toLowerCase();
+                                if (label.indexOf('fullscreen') !== -1 || label.indexOf('full screen') !== -1) {
+                                    info.foundBtnLabel = label;
+                                    return node;
+                                }
+                            }
+                            if (node.shadowRoot) {
+                                queue.push(node.shadowRoot);
+                            }
+                            if (node.children) {
+                                for (var i = 0; i < node.children.length; i++) {
+                                    queue.push(node.children[i]);
+                                }
+                            }
+                        }
+                        return null;
+                    }
+
+                    try {
+                        var target = (gmapObj && typeof gmapObj.getDiv === 'function') ? gmapObj.getDiv() : root;
+                        if (target) {
+                            info.targetTag = target.tagName || 'unknown';
+                            var req = target.requestFullscreen || target.webkitRequestFullscreen || target.mozRequestFullScreen || target.msRequestFullscreen;
+                            info.targetHasReqFs = (typeof req === 'function');
+                        }
+
+                        var btn = findFullscreenButton(document.body) || findFullscreenButton(root);
+                        if (btn) {
+                            btn.click();
+                            info.actionTaken = 'clicked_native_button';
+                            return info;
+                        }
+
+                        if (target && typeof req === 'function') {
+                            var res = req.call(target);
+                            if (res && typeof res.catch === 'function') {
+                                res.catch(function(err) {
+                                    console.log('[FS_DIAG] requestFullscreen promise rejected:', err);
+                                });
+                            }
+                            info.actionTaken = 'called_requestFullscreen';
+                            return info;
+                        }
+
+                        info.actionTaken = 'no_button_and_no_requestFullscreen';
+                        return info;
+                    } catch (e) {
+                        info.actionTaken = 'exception';
+                        info.errorMsg = String(e);
+                        return info;
+                    }
+                })
+                """,
+                    dom_node,
+                    gmap
+                )
+                print(f"[FS_DIAG] js_result={diag_result}")
+                alert(content=str(diag_result), title="Fullscreen Diagnostic", large=True)
+            except Exception as e:
+                print(f"[FS_DIAG] python exception: {e}")
+                alert(content=f"Python exception: {e}", title="Fullscreen Diagnostic Error", large=False)
+
+
+
+              
     def country_dropdown_change(self, **event_args):
         selected_country = self.Country_Code_Value.selected_value
         self.State_Province_Region_Value.items = []
         self.State_Province_Region_Value.selected_value = None
         self.City_Value.items = []
         self.City_Value.selected_value = None
-      
+
         if selected_country:
             try:
                 self.State_Province_Region_Value.items = anvil.server.call(
@@ -136,7 +512,7 @@ class MapEntry(MapEntryTemplate):
         selected_state = self.State_Province_Region_Value.selected_value
         self.City_Value.items = [("<Select City>", None)]
         self.City_Value.selected_value = None
-      
+
         if selected_country and selected_state:
             try:
                 self.City_Value.items = anvil.server.call(
@@ -156,148 +532,189 @@ class MapEntry(MapEntryTemplate):
             self.Custom_City_TextBox.visible = False
             self.Custom_City_TextBox.text = ""
 
-    def refresh_map_display(self, cluster_type=None, distance_value=None, active_record_id=None):
-        self.map_1.clear()
-        cluster_type = cluster_type or 'region'
-      
-        bounds = None
-        zoom_level = None
+    def refresh_map_display(self, cluster_type=None, distance_value=None, active_record_id=None, force=False):
+        self._clear_debounce_timeout()
+        if self._refresh_lock:
+            return
+        self._refresh_lock = True
+        self._loading_map = True
+        try:
+            cluster_type = cluster_type or 'region'
+            zoom_level, bounds = self._get_current_zoom_and_bounds()
 
-        if hasattr(self.map_1, 'get_bounds'):
-            try:
-                b = self.map_1.get_bounds()
-                if b:
-                    bounds = {'north': b.north, 'south': b.south, 'east': b.east, 'west': b.west}
-            except Exception:
-                pass
+            is_radial = self._is_radial_mode(cluster_type)
+            if is_radial:
+                if not self._radius_selected and not distance_value:
+                    return
+                try:
+                    radius = float(distance_value)
+                except (TypeError, ValueError):
+                    return
+                if radius <= 0:
+                    return
 
-        if hasattr(self.map_1, 'zoom'):
-            try:
-                zoom_level = self.map_1.zoom
-            except Exception:
-                pass
+                target_width = 2.0 * radius
+                win_width = self._get_viewport_width_in_unit(bounds, cluster_type)
 
-        markers = anvil.server.call(
-            'get_clustered_map_markers', 
-            cluster_type=cluster_type, 
-            distance_value=distance_value, 
-            active_record_id=active_record_id,
-            use_test_table=self.use_test_table,
-            bounds=bounds,
-            zoom_level=zoom_level
-        )
-      
-        for m in markers:
-            lat_lng = self.map_1.LatLng(m['lat'], m['lon'])
-            title = m.get('title', 'Cluster')
-            hex_color = m.get('color', '#ADD8E6')
-            cluster_keys = m.get('keys', {})
-      
-            marker_symbol = self.map_1.Symbol(
-                path=self.map_1.SymbolPath.CIRCLE,
-                scale=m.get('scale', 12),
-                fill_color=hex_color,
-                fill_opacity=0.9,
-                stroke_color='#FFFFFF',
-                stroke_weight=2
-            )
-      
-            marker = self.map_1.Marker(
-                position=lat_lng,
-                title=title,
-                icon=marker_symbol,
-                animation=self.map_1.Animation.DROP
-            )
-      
-            def make_click_handler(cluster_title, keys):
-                def marker_click_handler(sender, **event_args):
-                    # Check if cluster is at region, country, or state level (restricted)
-                    if not keys.get('city') and not keys.get('postal_code'):
+                if win_width is None or win_width > target_width:
+                    self.map_1.clear()
+                    zoom_changed = (zoom_level != self._last_radial_zoom)
+                    if not self._radial_prompt_shown or zoom_changed:
+                        self._radial_prompt_shown = True
+                        self._last_radial_zoom = zoom_level
                         alert(
-                            content=f"{cluster_title}\n\nRegional, country, and state clusters contain too many records to list individually.\n\nPlease zoom in to the City or Postal Code level to view user lists.",
-                            title="Cluster Overview",
+                            content="Center the map on your area of interest and zoom in closer.",
+                            title="Zoom In to View Radius Clusters",
                             large=False
                         )
-                        return
+                    return
 
-                    current_page = 1
-                    page_size = 100
-                    
-                    while True:
-                        response = anvil.server.call(
-                            'get_users_for_cluster', 
-                            cluster_keys=keys, 
-                            page=current_page,
-                            page_size=page_size,
-                            use_test_table=self.use_test_table
-                        )
-                        
-                        if response.get('restricted'):
+                self._radial_prompt_shown = False
+                self._last_radial_zoom = zoom_level
+
+            viewport_sig = (str(cluster_type).lower(), distance_value, zoom_level, str(bounds))
+            if not force and viewport_sig == self._last_viewport_sig:
+                return
+            self._last_viewport_sig = viewport_sig
+
+            markers = anvil.server.call(
+                'get_clustered_map_markers',
+                cluster_type=cluster_type,
+                distance_value=distance_value,
+                active_record_id=active_record_id,
+                use_test_table=self.use_test_table,
+                bounds=bounds,
+                zoom_level=zoom_level
+            )
+
+            self.map_1.clear()
+
+            for m in markers[:400]:
+                lat_lng = self.map_1.LatLng(m['lat'], m['lon'])
+                title = m.get('title', 'Cluster')
+                cluster_keys = m.get('keys', {})
+                cluster_users = m.get('users')
+                has_user_popup = (cluster_users is not None) or bool(cluster_keys.get('city') or cluster_keys.get('postal_code'))
+                hex_color = '#9370DB' if (is_radial or has_user_popup) else m.get('color', '#ADD8E6')
+
+                marker_symbol = self.map_1.Symbol(
+                    path=self.map_1.SymbolPath.CIRCLE,
+                    scale=m.get('scale', 12),
+                    fill_color=hex_color,
+                    fill_opacity=0.9,
+                    stroke_color='#FFFFFF',
+                    stroke_weight=2
+                )
+
+                marker = self.map_1.Marker(
+                    position=lat_lng,
+                    title=title,
+                    icon=marker_symbol,
+                    animation=self.map_1.Animation.DROP
+                )
+
+                def make_click_handler(cluster_title, keys, radial_users):
+                    def marker_click_handler(sender, **event_args):
+                        if radial_users is not None:
+                            self._show_paginated_user_alert(cluster_title, radial_users)
+                            return
+
+                        if not keys.get('city') and not keys.get('postal_code'):
                             alert(
-                                content="Please zoom in to the City or Postal Code level to view user lists.",
-                                title="Cluster Overview"
+                                content=f"{cluster_title}\n\nRegional, country, and state clusters contain too many records to list individually.\n\nPlease zoom in to the City or Postal Code level to view user lists.",
+                                title="Cluster Overview",
+                                large=False
                             )
-                            break
+                            return
 
-                        users = response.get('users', ['Unknown User'])
-                        total_count = response.get('total_count', 0)
-                        current_page = response.get('page', 1)
-                        total_pages = response.get('total_pages', 1)
-                        
-                        start_idx = ((current_page - 1) * page_size) + 1 if total_count > 0 else 0
-                        end_idx = min(current_page * page_size, total_count)
-              
-                        formatted_users = "\n".join([f"• {u}" for u in users])
-                        page_info = f"Page {current_page} of {total_pages} (Showing {start_idx}-{end_idx} of {total_count})"
-              
-                        content = f"{cluster_title}\n\n{page_info}\n\n{formatted_users}"
-              
-                        buttons = []
-                        if current_page > 1:
-                            buttons.append(("Previous", "prev"))
-                        if current_page < total_pages:
-                            buttons.append(("Next", "next"))
-                        buttons.append(("Close", None))
-              
-                        action = alert(content=content, title="Cluster Users", large=True, buttons=buttons)
-              
-                        if action == "next":
-                            current_page += 1
-                        elif action == "prev":
-                            current_page -= 1
-                        else:
-                            break
-                return marker_click_handler
-      
-            marker.set_event_handler('click', make_click_handler(title, cluster_keys))
-            self.map_1.add_component(marker)
-      
-        if markers and not bounds:
-            latest = markers[0]
-            self.map_1.center = self.map_1.LatLng(latest['lat'], latest['lon'])
-            self.map_1.zoom = 4
-          
+                        current_page = 1
+                        page_size = 100
+
+                        while True:
+                            response = anvil.server.call(
+                                'get_users_for_cluster',
+                                cluster_keys=keys,
+                                page=current_page,
+                                page_size=page_size,
+                                use_test_table=self.use_test_table
+                            )
+
+                            if response.get('restricted'):
+                                alert(
+                                    content="Please zoom in to the City or Postal Code level to view user lists.",
+                                    title="Cluster Overview"
+                                )
+                                break
+
+                            users = response.get('users', ['Unknown User'])
+                            total_count = response.get('total_count', 0)
+                            current_page = response.get('page', 1)
+                            total_pages = response.get('total_pages', 1)
+
+                            start_idx = ((current_page - 1) * page_size) + 1 if total_count > 0 else 0
+                            end_idx = min(current_page * page_size, total_count)
+
+                            formatted_users = "\n".join([f"• {u}" for u in users])
+                            page_info = f"Page {current_page} of {total_pages} (Showing {start_idx}-{end_idx} of {total_count})"
+
+                            content = f"{cluster_title}\n\n{page_info}\n\n{formatted_users}"
+
+                            buttons = []
+                            if current_page > 1:
+                                buttons.append(("Previous", "prev"))
+                            if current_page < total_pages:
+                                buttons.append(("Next", "next"))
+                            buttons.append(("Close", None))
+
+                            action = alert(content=content, title="Cluster Users", large=True, buttons=buttons)
+
+                            if action == "next":
+                                current_page += 1
+                            elif action == "prev":
+                                current_page -= 1
+                            else:
+                                break
+                    return marker_click_handler
+
+                marker.set_event_handler('click', make_click_handler(title, cluster_keys, cluster_users))
+                self.map_1.add_component(marker)
+
+            if markers and not self._initial_centered:
+                latest = markers[0]
+                self.map_1.center = self.map_1.LatLng(latest['lat'], latest['lon'])
+                self.map_1.zoom = 4
+                self._initial_centered = True
+        finally:
+            self._refresh_lock = False
+            self._loading_map = False
+
     def cluster_dropdown_change(self, sender, **event_args):
         val = sender.selected_value
-        is_radial = val and val.lower() in ['miles', 'kilometers', 'mi', 'km']
-    
+        is_radial = self._is_radial_mode(val)
+        self._radial_prompt_shown = False
+        self._last_radial_zoom = None
+        self._radius_selected = False
+
         self.Threshold_Label.visible = is_radial
         self.Threshold_Dropdown.visible = is_radial
-    
-        distance_val = None
+
         if is_radial:
+            self.Threshold_Dropdown.selected_value = None
             self.Threshold_Dropdown.focus()
-            distance_val = self.Threshold_Dropdown.selected_value
-    
-        self.refresh_map_display(cluster_type=val, distance_value=distance_val)
+            return
+
+        self.refresh_map_display(cluster_type=val, distance_value=None, force=True)
 
     def threshold_dropdown_change(self, sender, **event_args):
+        self._radial_prompt_shown = False
+        self._last_radial_zoom = None
+        self._radius_selected = bool(sender.selected_value)
         cluster_type_val = self.Cluster_Type_Dropdown.selected_value
-        self.refresh_map_display(cluster_type=cluster_type_val, distance_value=sender.selected_value)
+        self.refresh_map_display(cluster_type=cluster_type_val, distance_value=sender.selected_value, force=True)
 
     def Info_Link_click(self, **event_args):
         alert(
-            content="Clusters allow you to zoom in from Global Region down to Postal Code or select Miles/Kilometers and a radius to view the records at these levels.",
+            content="Clusters allow you to zoom in from Global Region down to Postal Code or select Miles/Kilometers and a radius to view the records at these levels.\nAs you zoom farther into the map, an increasing number of map markers will appear. When a marker reaches its most granular level, it will change colors from blue to purple and when clicked will display users covered by that marker.",
             title="Cluster Information",
             large=False
         )
@@ -307,7 +724,7 @@ class MapEntry(MapEntryTemplate):
         try:
             use_test = getattr(self, 'use_test_table', True)
             result_message = anvil.server.call(
-                'populate_map_user_lookup', 
+                'populate_map_user_lookup',
                 use_test_table=use_test
             )
             alert(content=result_message, title="Background Task Started", large=False)

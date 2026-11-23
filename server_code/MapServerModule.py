@@ -9,8 +9,16 @@ from pycountry_convert import country_alpha2_to_continent_code
 from country_state_city import Country, State, City
 from geopy.geocoders import Nominatim
 
-# Initialize Nominatim geolocator with a unique user agent
 geolocator = Nominatim(user_agent="NaturistMappingProject")
+
+MAX_RENDER_MARKERS = 400
+USER_LIST_CLUSTER_COLOR = '#9370DB'
+DEFAULT_ZOOM_BOUNDS = {
+    'south': 32.0,
+    'north': 42.5,
+    'west': -125.0,
+    'east': -114.0,
+}
 
 
 def get_target_table(use_test_table):
@@ -39,7 +47,7 @@ def get_region_from_country_code(country_code):
 
 def calculate_haversine_distance_km(lat1, lon1, lat2, lon2):
     """Calculates great-circle distance between two points in kilometers."""
-    R = 6371.0  # Earth radius in kilometers
+    R = 6371.0
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
     a = (math.sin(dlat / 2) ** 2 +
@@ -49,20 +57,38 @@ def calculate_haversine_distance_km(lat1, lon1, lat2, lon2):
     return R * c
 
 
+def _viewport_width_in_unit(bounds, unit_type):
+    """Returns east-west viewport width in miles or km for the given bounds."""
+    if not bounds:
+        return None
+    try:
+        north = float(bounds['north'])
+        south = float(bounds['south'])
+        east = float(bounds['east'])
+        west = float(bounds['west'])
+        mid_lat = (north + south) / 2.0
+        width_km = calculate_haversine_distance_km(mid_lat, west, mid_lat, east)
+        if unit_type in ['miles', 'mi']:
+            return width_km / 1.60934
+        return width_km
+    except Exception:
+        return None
+
+
 def get_marker_color(count):
     """Determines marker hex color based on record/user count tiers."""
     if count <= 999:
-        return '#ADD8E6'      # Light Blue
+        return '#ADD8E6'
     elif count <= 9999:
-        return '#87CEEB'      # Sky Blue
+        return '#87CEEB'
     elif count <= 99999:
-        return '#1E90FF'      # Dodger Blue
+        return '#1E90FF'
     elif count <= 249999:
-        return '#4169E1'      # Royal Blue
+        return '#4169E1'
     elif count <= 999999:
-        return '#0000CD'      # Medium Blue
+        return '#0000CD'
     else:
-        return '#000080'      # Navy Blue
+        return '#000080'
 
 
 def get_marker_scale(count):
@@ -79,6 +105,328 @@ def get_marker_scale(count):
         return 18
     else:
         return 20
+
+
+def _sanitize_coords(lat, lon, state=''):
+    """Validates and normalizes latitude/longitude floats, returning (lat, lon) or None."""
+    if lat is None or lon is None:
+        return None
+    try:
+        lat_f = float(lat)
+        lon_f = float(lon)
+    except (ValueError, TypeError):
+        return None
+
+    if not (-90.0 <= lat_f <= 90.0):
+        return None
+
+    if 0.0 < lon_f <= 90.0:
+        if (state or '').strip().upper() == 'CA':
+            lon_f = -119.4179
+        else:
+            lon_f = -abs(lon_f)
+
+    if not (-180.0 <= lon_f <= 180.0):
+        return None
+
+    return lat_f, lon_f
+
+
+def _in_bounds(lat, lon, bounds):
+    """Checks whether (lat, lon) falls inside a {'north','south','east','west'} dict."""
+    if not bounds:
+        return True
+    north = bounds.get('north')
+    south = bounds.get('south')
+    east = bounds.get('east')
+    west = bounds.get('west')
+
+    if north is not None and lat > float(north):
+        return False
+    if south is not None and lat < float(south):
+        return False
+
+    if west is not None and east is not None:
+        w, e = float(west), float(east)
+        if w <= e:
+            if not (w <= lon <= e):
+                return False
+        else:
+            if not (lon >= w or lon <= e):
+                return False
+    return True
+
+
+def _bbox_overlaps_point_radius(row, center_lat, center_lon, radius_km):
+    """Checks if a postal summary row's center or bbox falls within radius_km of center."""
+    plat = row.get('center_lat')
+    plon = row.get('center_lon')
+    if plat is None or plon is None:
+        return False
+    plat_f, plon_f = float(plat), float(plon)
+
+    # Expand search window by ~0.5 deg (~55 km) for bbox overlap check
+    lat_pad = max(0.5, (radius_km / 111.0) + 0.25)
+    cos_lat = max(0.1, math.cos(math.radians(center_lat)))
+    lon_pad = max(0.5, (radius_km / (111.0 * cos_lat)) + 0.25)
+
+    min_lat = row.get('min_lat')
+    max_lat = row.get('max_lat')
+    min_lon = row.get('min_lon')
+    max_lon = row.get('max_lon')
+
+    if min_lat is not None and max_lat is not None and min_lon is not None and max_lon is not None:
+        if (float(max_lat) < center_lat - lat_pad or
+                float(min_lat) > center_lat + lat_pad or
+                float(max_lon) < center_lon - lon_pad or
+                float(min_lon) > center_lon + lon_pad):
+            return False
+
+    return calculate_haversine_distance_km(center_lat, center_lon, plat_f, plon_f) <= (radius_km + 15.0)
+
+
+def _users_for_postal_pairs(postal_pairs):
+    """Fetches distinct usernames from map_user_lookup for matching (country_code, postal_code) pairs."""
+    users = set()
+    lookup_table = app_tables.map_user_lookup
+    for cc, pc in postal_pairs:
+        filters = {'postal_code': pc}
+        if cc:
+            filters['country_code'] = cc
+        try:
+            for r in lookup_table.search(q.fetch_only('user'), **filters):
+                u = r.get('user')
+                if u:
+                    users.add(u)
+        except Exception:
+            pass
+    return users
+
+
+def _zoom_tier_spec(zoom_level, focus_tier=None):
+    """Determines clustering mode and grid cell size for the current zoom level."""
+    z = None
+    if zoom_level is not None:
+        try:
+            z = float(zoom_level)
+        except (ValueError, TypeError):
+            z = None
+
+    if focus_tier == 'postal':
+        return {'mode': 'postal', 'cell': None, 'tag': f'Z{z}:Postal'}
+
+    if z is None or z <= 5:
+        return {'mode': 'state', 'cell': None, 'tag': f'Z{z}:State'}
+    elif z <= 7:
+        return {'mode': 'grid', 'cell': 2.5, 'tag': f'Z{z}:SubRegion'}
+    elif z <= 9:
+        return {'mode': 'grid', 'cell': 0.8, 'tag': f'Z{z}:Metro'}
+    elif z <= 11:
+        return {'mode': 'grid', 'cell': 0.2, 'tag': f'Z{z}:CityBand'}
+    else:
+        if focus_tier == 'city':
+            return {'mode': 'grid', 'cell': 0.05, 'tag': f'Z{z}:City'}
+        return {'mode': 'postal', 'cell': None, 'tag': f'Z{z}:Postal'}
+
+
+def _state_level_markers(bounds=None):
+    """Returns one marker per state from map_state_summary."""
+    fetch_cols = ('country_code', 'state', 'center_lat', 'center_lon', 'user_count')
+    try:
+        rows = list(app_tables.map_state_summary.search(q.fetch_only(*fetch_cols)))
+    except Exception:
+        rows = []
+
+    markers = []
+    for row in rows:
+        lat = row.get('center_lat')
+        lon = row.get('center_lon')
+        count = row.get('user_count', 0)
+        if lat is None or lon is None or count <= 0:
+            continue
+
+        lat_f, lon_f = float(lat), float(lon)
+        if not _in_bounds(lat_f, lon_f, bounds):
+            continue
+
+        state_name = (row.get('state') or 'State').strip().upper()
+        country_code = (row.get('country_code') or '').strip().upper()
+        keys = {'state': state_name}
+        if country_code:
+            keys['country_code'] = country_code
+
+        markers.append({
+            'lat': lat_f,
+            'lon': lon_f,
+            'color': get_marker_color(count),
+            'scale': get_marker_scale(count),
+            'title': f"{state_name} ({count} users)",
+            'user_count': count,
+            'keys': keys
+        })
+    markers.sort(key=lambda m: m['user_count'], reverse=True)
+    return markers[:MAX_RENDER_MARKERS]
+
+
+def _city_grid_markers(bounds=None, cell_size=0.8, tag='Metro', focus_tier='city'):
+    """Aggregates map_city_summary rows into spatial grid buckets."""
+    effective_bounds = bounds or DEFAULT_ZOOM_BOUNDS
+    fetch_cols = ('country_code', 'state', 'city', 'center_lat', 'center_lon', 'user_count')
+
+    try:
+        rows = list(app_tables.map_city_summary.search(q.fetch_only(*fetch_cols)))
+    except Exception:
+        rows = []
+
+    grid_buckets = {}
+    for row in rows:
+        lat = row.get('center_lat')
+        lon = row.get('center_lon')
+        count = int(row.get('user_count') or 0)
+        if lat is None or lon is None or count <= 0:
+            continue
+
+        state_val = (row.get('state') or '').strip().upper()
+        coords = _sanitize_coords(lat, lon, state=state_val)
+        if not coords:
+            continue
+
+        lat_f, lon_f = coords
+        if not _in_bounds(lat_f, lon_f, effective_bounds):
+            continue
+
+        lat_idx = math.floor(lat_f / cell_size)
+        lon_idx = math.floor(lon_f / cell_size)
+        bucket_key = (lat_idx, lon_idx)
+
+        if bucket_key not in grid_buckets:
+            grid_buckets[bucket_key] = {
+                'weighted_lat': 0.0,
+                'weighted_lon': 0.0,
+                'user_count': 0,
+                'cities': set(),
+                'states': set(),
+                'country_codes': set(),
+            }
+
+        b = grid_buckets[bucket_key]
+        b['weighted_lat'] += lat_f * count
+        b['weighted_lon'] += lon_f * count
+        b['user_count'] += count
+
+        city_val = (row.get('city') or '').strip()
+        cc_val = (row.get('country_code') or '').strip().upper()
+        if city_val:
+            b['cities'].add(city_val)
+        if state_val:
+            b['states'].add(state_val)
+        if cc_val:
+            b['country_codes'].add(cc_val)
+
+    markers = []
+    for b in grid_buckets.values():
+        count = b['user_count']
+        if count <= 0:
+            continue
+
+        center_lat = b['weighted_lat'] / count
+        center_lon = b['weighted_lon'] / count
+
+        if len(b['cities']) == 1:
+            place_label = next(iter(b['cities'])).title()
+        elif len(b['states']) == 1:
+            place_label = f"{next(iter(b['states']))} ({len(b['cities'])} cities)"
+        elif len(b['country_codes']) == 1:
+            place_label = next(iter(b['country_codes']))
+        else:
+            place_label = "Region"
+
+        cluster_keys = {}
+        if len(b['country_codes']) == 1:
+            cluster_keys['country_code'] = next(iter(b['country_codes']))
+        if len(b['states']) == 1:
+            cluster_keys['state'] = next(iter(b['states']))
+        if len(b['cities']) == 1:
+            cluster_keys['city'] = next(iter(b['cities']))
+
+        is_user_list_level = bool(cluster_keys.get('city') or cluster_keys.get('postal_code'))
+        dot_color = USER_LIST_CLUSTER_COLOR if is_user_list_level else get_marker_color(count)
+
+        markers.append({
+            'lat': center_lat,
+            'lon': center_lon,
+            'color': dot_color,
+            'scale': get_marker_scale(count),
+            'title': f"{place_label} ({count} users) [{tag}]",
+            'user_count': count,
+            'keys': cluster_keys
+        })
+
+    markers.sort(key=lambda m: m['user_count'], reverse=True)
+    return markers[:MAX_RENDER_MARKERS]
+
+
+def _postal_level_markers(bounds=None, tag='Postal'):
+    """Returns postal-level cluster markers from map_postal_summary inside viewport bounds."""
+    effective_bounds = bounds or DEFAULT_ZOOM_BOUNDS
+    fetch_cols = ('country_code', 'postal_code', 'center_lat', 'center_lon', 'user_count')
+
+    try:
+        rows = list(app_tables.map_postal_summary.search(q.fetch_only(*fetch_cols)))
+    except Exception:
+        rows = []
+
+    markers = []
+    for row in rows:
+        lat = row.get('center_lat')
+        lon = row.get('center_lon')
+        count = int(row.get('user_count') or 0)
+        postal_code = (row.get('postal_code') or '').strip()
+        if lat is None or lon is None or count <= 0 or not postal_code:
+            continue
+
+        lat_f, lon_f = float(lat), float(lon)
+        if not _in_bounds(lat_f, lon_f, effective_bounds):
+            continue
+
+        country_code = (row.get('country_code') or '').strip().upper()
+        keys = {'postal_code': postal_code}
+        if country_code:
+            keys['country_code'] = country_code
+
+        markers.append({
+            'lat': lat_f,
+            'lon': lon_f,
+            'color': USER_LIST_CLUSTER_COLOR,
+            'scale': get_marker_scale(count),
+            'title': f"Postal {postal_code.upper()} ({count} users) [{tag}]",
+            'user_count': count,
+            'keys': keys
+        })
+
+    markers.sort(key=lambda m: m['user_count'], reverse=True)
+    return markers[:MAX_RENDER_MARKERS]
+
+
+def _build_progressive_markers(bounds=None, zoom_level=None, focus_tier=None):
+    """Builds progressive markers across zoom levels from pre-aggregated summary tables."""
+    spec = _zoom_tier_spec(zoom_level, focus_tier=focus_tier)
+    mode = spec['mode']
+    cell_size = spec['cell']
+    tag = spec['tag']
+
+    if mode == 'state':
+        return _state_level_markers(bounds=bounds)
+
+    if mode == 'postal':
+        return _postal_level_markers(bounds=bounds, tag=tag)
+
+    return _city_grid_markers(
+        bounds=bounds,
+        cell_size=cell_size,
+        tag=tag,
+        focus_tier=focus_tier
+    )
 
 
 @anvil.server.callable
@@ -131,12 +479,26 @@ def get_map_markers_with_privacy_view(active_record_id=None, show_actuals=True, 
 
 
 @anvil.server.callable
-def get_clustered_map_markers(cluster_type='region', distance_value=None, distance_unit='miles', active_record_id=None, use_test_table=False, bounds=None, zoom_level=None):
-    cluster_type = (cluster_type or 'region').lower()
+def get_clustered_map_markers(
+    cluster_type='region',
+    distance_value=None,
+    distance_unit='miles',
+    active_record_id=None,
+    use_test_table=False,
+    bounds=None,
+    zoom_level=None
+):
+    cluster_type = (cluster_type or 'region').strip().lower()
 
-    if cluster_type in ['country', 'state', 'city', 'region', 'postal code', 'postal']:
-        # Prioritize explicit dropdown selection ('region', 'country', 'state', 'city', 'postal'), 
-        # otherwise fall back to zoom level evaluation.
+    if cluster_type in ['city', 'postal code', 'postal']:
+        focus = 'postal' if cluster_type in ['postal code', 'postal'] else 'city'
+        return _build_progressive_markers(
+            bounds=bounds,
+            zoom_level=zoom_level,
+            focus_tier=focus
+        )
+
+    if cluster_type in ['country', 'state', 'region']:
         if cluster_type == 'region':
             table = app_tables.map_region_summary
             fetch_cols = ('region', 'center_lat', 'center_lon', 'min_lat', 'max_lat', 'min_lon', 'max_lon', 'user_count')
@@ -145,157 +507,144 @@ def get_clustered_map_markers(cluster_type='region', distance_value=None, distan
             table = app_tables.map_country_summary
             fetch_cols = ('country_code', 'center_lat', 'center_lon', 'min_lat', 'max_lat', 'min_lon', 'max_lon', 'user_count')
             label_key = 'country_code'
-        elif cluster_type == 'state':
+        else:
             table = app_tables.map_state_summary
             fetch_cols = ('country_code', 'state', 'center_lat', 'center_lon', 'min_lat', 'max_lat', 'min_lon', 'max_lon', 'user_count')
             label_key = 'state'
-        elif cluster_type in ['city', 'postal code', 'postal']:
-            if cluster_type == 'city':
-                table = app_tables.map_city_summary
-                fetch_cols = ('country_code', 'state', 'city', 'center_lat', 'center_lon', 'min_lat', 'max_lat', 'min_lon', 'max_lon', 'user_count')
-                label_key = 'city'
-            else:
-                table = app_tables.map_postal_summary
-                fetch_cols = ('country_code', 'postal_code', 'center_lat', 'center_lon', 'min_lat', 'max_lat', 'min_lon', 'max_lon', 'user_count')
-                label_key = 'postal_code'
-        else:
-            # Fallback to zoom-based automatic clustering if cluster_type isn't a direct match
-            if zoom_level is not None and zoom_level < 4:
-                table = app_tables.map_region_summary
-                fetch_cols = ('region', 'center_lat', 'center_lon', 'min_lat', 'max_lat', 'min_lon', 'max_lon', 'user_count')
-                label_key = 'region'
-            elif zoom_level is not None and zoom_level < 7:
-                table = app_tables.map_country_summary
-                fetch_cols = ('country_code', 'center_lat', 'center_lon', 'min_lat', 'max_lat', 'min_lon', 'max_lon', 'user_count')
-                label_key = 'country_code'
-            elif zoom_level is not None and zoom_level < 10:
-                table = app_tables.map_state_summary
-                fetch_cols = ('country_code', 'state', 'center_lat', 'center_lon', 'min_lat', 'max_lat', 'min_lon', 'max_lon', 'user_count')
-                label_key = 'state'
-            elif zoom_level is not None and zoom_level < 13:
-                table = app_tables.map_city_summary
-                fetch_cols = ('country_code', 'state', 'city', 'center_lat', 'center_lon', 'min_lat', 'max_lat', 'min_lon', 'max_lon', 'user_count')
-                label_key = 'city'
-            else:
-                table = app_tables.map_postal_summary
-                fetch_cols = ('country_code', 'postal_code', 'center_lat', 'center_lon', 'min_lat', 'max_lat', 'min_lon', 'max_lon', 'user_count')
-                label_key = 'postal_code'
 
-        if bounds:
-            south = bounds.get('south')
-            north = bounds.get('north')
-            west = bounds.get('west')
-            east = bounds.get('east')
-
-            try:
-                summary_rows = list(table.search(
-                    q.fetch_only(*fetch_cols),
-                    min_lat=q.less_than_or_equal_to(north),
-                    max_lat=q.greater_than_or_equal_to(south),
-                    min_lon=q.less_than_or_equal_to(east),
-                    max_lon=q.greater_than_or_equal_to(west)
-                ))[:2000]
-            except Exception:
-                summary_rows = list(table.search(q.fetch_only(*fetch_cols)))[:2000]
-        else:
-            summary_rows = list(table.search(q.fetch_only(*fetch_cols)))[:2000]
+        try:
+            all_summary = list(table.search(q.fetch_only(*fetch_cols)))
+        except Exception:
+            all_summary = []
 
         markers = []
-        for row in summary_rows:
+        for row in all_summary:
             lat = row.get('center_lat')
             lon = row.get('center_lon')
             count = row.get('user_count', 0)
-            if lat is None or lon is None:
+            if lat is None or lon is None or count <= 0:
+                continue
+
+            lat_f, lon_f = float(lat), float(lon)
+            if not _in_bounds(lat_f, lon_f, bounds):
                 continue
 
             name = row.get(label_key) or 'Cluster'
-            
             markers.append({
-                'lat': float(lat),
-                'lon': float(lon),
+                'lat': lat_f,
+                'lon': lon_f,
                 'color': get_marker_color(count),
                 'scale': get_marker_scale(count),
                 'title': f"{str(name).title()} ({count} users)",
                 'user_count': count,
-                'keys': {k: row[k] for k in fetch_cols if k in row and k not in ['center_lat', 'center_lon', 'min_lat', 'max_lat', 'min_lon', 'max_lon', 'user_count']}
+                'keys': {
+                    k: row[k] for k in fetch_cols
+                    if k in row and k not in ['center_lat', 'center_lon', 'min_lat', 'max_lat', 'min_lon', 'max_lon', 'user_count']
+                }
             })
-        return markers
+        markers.sort(key=lambda m: m['user_count'], reverse=True)
+        return markers[:MAX_RENDER_MARKERS]
 
     elif cluster_type in ['miles', 'kilometers', 'mi', 'km']:
-        raw_table = get_target_table(use_test_table)
-        all_items = list(raw_table.search(q.fetch_only('latitude', 'longitude', 'user')))
-        
+        if distance_value is None or str(distance_value).strip() == '':
+            return []
         try:
-            radius = float(distance_value or 10)
+            radius = float(distance_value)
         except (TypeError, ValueError):
-            radius = 10.0
-            
+            return []
+        if radius <= 0:
+            return []
+
+        win_width = _viewport_width_in_unit(bounds, cluster_type)
+        if win_width is None or win_width > (2.0 * radius):
+            return []
+
         radius_km = radius * 1.60934 if cluster_type in ['miles', 'mi'] else radius
+
+        postal_cols = ('country_code', 'postal_code', 'center_lat', 'center_lon', 'min_lat', 'max_lat', 'min_lon', 'max_lon', 'user_count')
+        try:
+            postal_rows = list(app_tables.map_postal_summary.search(q.fetch_only(*postal_cols)))
+        except Exception:
+            postal_rows = []
+
+        in_view_postals = []
+        for prow in postal_rows:
+            plat = prow.get('center_lat')
+            plon = prow.get('center_lon')
+            pcode = (prow.get('postal_code') or '').strip()
+            pcount = int(prow.get('user_count') or 0)
+            if plat is None or plon is None or not pcode or pcount <= 0:
+                continue
+            plat_f, plon_f = float(plat), float(plon)
+            if _in_bounds(plat_f, plon_f, bounds):
+                in_view_postals.append({
+                    'country_code': (prow.get('country_code') or '').strip().upper(),
+                    'postal_code': pcode,
+                    'lat': plat_f,
+                    'lon': plon_f,
+                    'raw_row': prow,
+                })
+
         clusters = []
-        
-        for row in all_items:
-            lat = row.get('latitude')
-            lon = row.get('longitude')
-            username = row.get('user') or 'Unknown User'
-            
-            if lat is None or lon is None:
-                continue
-                
-            try:
-                lat, lon = float(lat), float(lon)
-            except (ValueError, TypeError):
-                continue
-
-            if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
-                continue
-
+        for p in in_view_postals:
+            lat, lon = p['lat'], p['lon']
             added_to_cluster = False
-            
             for cluster in clusters:
-                dist = calculate_haversine_distance_km(cluster['lat'], cluster['lon'], lat, lon)
-                if dist <= radius_km:
-                    cluster['users'].add(username)
+                if calculate_haversine_distance_km(cluster['lat'], cluster['lon'], lat, lon) <= radius_km:
+                    cluster['postal_items'].append(p)
                     cluster['lats'].append(lat)
                     cluster['lons'].append(lon)
-                    min_lat, max_lat = min(cluster['lats']), max(cluster['lats'])
-                    min_lon, max_lon = min(cluster['lons']), max(cluster['lons'])
-                    cluster['lat'] = (min_lat + max_lat) / 2.0
-                    cluster['lon'] = (min_lon + max_lon) / 2.0
+                    cluster['lat'] = (min(cluster['lats']) + max(cluster['lats'])) / 2.0
+                    cluster['lon'] = (min(cluster['lons']) + max(cluster['lons'])) / 2.0
                     added_to_cluster = True
                     break
-            
             if not added_to_cluster:
                 clusters.append({
                     'lat': lat,
                     'lon': lon,
                     'lats': [lat],
                     'lons': [lon],
-                    'users': {username}
+                    'postal_items': [p],
                 })
-                
+
         markers = []
         unit_label = 'miles' if cluster_type in ['miles', 'mi'] else 'km'
         for i, cluster in enumerate(clusters, 1):
-            user_list = list(cluster['users'])
+            c_lat, c_lon = cluster['lat'], cluster['lon']
+            matching_pairs = set()
+            for prow in postal_rows:
+                pcode = (prow.get('postal_code') or '').strip()
+                if not pcode:
+                    continue
+                if _bbox_overlaps_point_radius(prow, c_lat, c_lon, radius_km):
+                    matching_pairs.add(((prow.get('country_code') or '').strip().upper(), pcode))
+
+            user_set = _users_for_postal_pairs(matching_pairs)
+            user_list = sorted(list(user_set))
             count = len(user_list)
             markers.append({
-                'lat': cluster['lat'],
-                'lon': cluster['lon'],
-                'color': get_marker_color(count),
+                'lat': c_lat,
+                'lon': c_lon,
+                'color': USER_LIST_CLUSTER_COLOR,
                 'scale': get_marker_scale(count),
-                'title': f"Cluster {i} ({count} users within {radius} {unit_label})",
+                'title': f"Cluster {i} ({count} users within {radius:g} {unit_label})",
                 'users': user_list
             })
-        return markers
+
+        markers.sort(key=lambda m: len(m['users']), reverse=True)
+        return markers[:MAX_RENDER_MARKERS]
 
     else:
-        return get_map_markers_with_privacy_view(active_record_id=active_record_id, use_test_table=use_test_table)
+        return get_map_markers_with_privacy_view(
+            active_record_id=active_record_id,
+            use_test_table=use_test_table
+        )
 
 
 @anvil.server.callable
 def save_map_item(item_id, item_data, use_test_table=True):
     table = get_target_table(use_test_table)
-    
+
     country = (item_data.get('country_code') or '').strip().upper()
     state = (item_data.get('state') or '').strip().upper()
     city = (item_data.get('city') or '').strip()
@@ -367,7 +716,7 @@ def save_map_item(item_id, item_data, use_test_table=True):
         'city': city,
         'postal_code': postal_code
     }
-    
+
     if existing_lookup:
         existing_lookup.update(**lookup_data)
     else:
@@ -378,7 +727,7 @@ def save_map_item(item_id, item_data, use_test_table=True):
 
 def update_summary_tier(summary_table, query_dict, lat, lon, user, raw_table, **raw_filters):
     summary_row = summary_table.get(**query_dict)
-    
+
     bucket_rows = list(raw_table.search(**raw_filters))
     if not bucket_rows:
         if summary_row:
@@ -395,27 +744,11 @@ def update_summary_tier(summary_table, query_dict, lat, lon, user, raw_table, **
         r_user = r.get('user')
         r_state = (r.get('state') or '').strip().upper()
 
-        if r_lat is None or r_lon is None:
-            continue
-        try:
-            rlat_f = float(r_lat)
-            rlon_f = float(r_lon)
-        except (ValueError, TypeError):
+        coords = _sanitize_coords(r_lat, r_lon, state=r_state)
+        if not coords:
             continue
 
-        if not (-90.0 <= rlat_f <= 90.0):
-            continue
-
-        # Sanitize positive longitudes stored as latitudes
-        if 0.0 < rlon_f <= 90.0:
-            if r_state == 'CA':
-                rlon_f = -119.4179
-            else:
-                rlon_f = -abs(rlon_f)
-
-        if not (-180.0 <= rlon_f <= 180.0):
-            continue
-
+        rlat_f, rlon_f = coords
         lats.append(rlat_f)
         lons.append(rlon_f)
         if r_user:
@@ -465,7 +798,7 @@ def get_country_list():
                 except Exception:
                     region_name = "Other"
                 grouped_countries[region_name].append((c.name, c.alpha_2))
-            
+
             for region in region_order:
                 sorted_region_countries = sorted(grouped_countries[region], key=lambda x: x[0])
                 for name, code in sorted_region_countries:
@@ -548,7 +881,7 @@ def get_users_for_cluster(cluster_keys, page=1, page_size=100, use_test_table=Fa
         }
 
     lookup_table = app_tables.map_user_lookup
-    
+
     query_filters = {}
     for k, v in cluster_keys.items():
         if k in ['country_code', 'state', 'city', 'postal_code'] and v:
@@ -557,7 +890,7 @@ def get_users_for_cluster(cluster_keys, page=1, page_size=100, use_test_table=Fa
     matching_rows = lookup_table.search(q.fetch_only('user'), **query_filters)
     unique_users = sorted(list({row['user'] for row in matching_rows if row.get('user')}))
     total_count = len(unique_users)
-    
+
     if not unique_users:
         return {
             'users': ['Unknown User'],
@@ -569,12 +902,12 @@ def get_users_for_cluster(cluster_keys, page=1, page_size=100, use_test_table=Fa
 
     total_pages = max(1, math.ceil(total_count / page_size))
     page = max(1, min(page, total_pages))
-    
+
     start_idx = (page - 1) * page_size
     end_idx = start_idx + page_size
-    
+
     paginated_users = unique_users[start_idx:end_idx]
-    
+
     return {
         'users': paginated_users,
         'total_count': total_count,

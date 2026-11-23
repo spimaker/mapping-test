@@ -42,7 +42,7 @@
       <anvil-component type="RepeatingPanel" name="repeating_panel_1" prop:item_template="Mapping_Test.LegendRow" container:grid_position="YPSTZZ,OXOPMU"></anvil-component>
       <anvil-component type="GridPanel" name="grid_panel_3" container:grid_position="FKZHYJ,ICNDKH">
         <anvil-component type="Button" name="Load_Clusters_Button" prop:text="Load Clusters" prop:visible="false" container:row="ILGUOZ" container:width_xs="5" container:col_xs="0"></anvil-component>
-        <anvil-component type="Button" name="fullscreen_button" prop:text="Full Screen Map" container:row="ILGUOZ" container:width_xs="5" container:col_xs="7"></anvil-component>
+        <anvil-component type="Button" name="fullscreen_button" prop:text="Full Screen Map" on:click="self.full_screen_map_button_click" container:row="ILGUOZ" container:width_xs="5" container:col_xs="7"></anvil-component>
       </anvil-component>
       <anvil-component type="GoogleMap" name="map_1" prop:height="530.07470703125" container:grid_position="XFSJRJ,HMHCHW"></anvil-component>
     </anvil-component>
