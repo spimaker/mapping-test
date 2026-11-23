@@ -3,6 +3,7 @@ import anvil.server
 import anvil.js
 from anvil import alert
 import math
+import re
 
 
 class MapEntry(MapEntryTemplate):
@@ -26,6 +27,9 @@ class MapEntry(MapEntryTemplate):
 
         self.Threshold_Label.visible = False
         self.Threshold_Dropdown.visible = False
+
+        if hasattr(self, 'Fullscreen_button'):
+            self.Fullscreen_button.set_event_handler('click', self.full_screen_map_button_click)
 
         try:
             self.Country_Code_Value.items = anvil.server.call('get_country_list')
@@ -55,6 +59,19 @@ class MapEntry(MapEntryTemplate):
     @staticmethod
     def _is_radial_mode(cluster_type):
         return bool(cluster_type and str(cluster_type).strip().lower() in ['miles', 'kilometers', 'mi', 'km'])
+
+    @staticmethod
+    def _parse_radius_value(distance_value):
+        if distance_value is None:
+            return None
+        if isinstance(distance_value, (int, float)):
+            val = float(distance_value)
+            return val if val > 0 else None
+        match = re.search(r'[-+]?\d*\.?\d+', str(distance_value))
+        if not match:
+            return None
+        val = float(match.group(0))
+        return val if val > 0 else None
 
     @staticmethod
     def _haversine_km(lat1, lon1, lat2, lon2):
@@ -263,8 +280,11 @@ class MapEntry(MapEntryTemplate):
 
     def _run_debounced_refresh(self):
         self._debounce_timeout_id = None
-        if self._refresh_lock or self._loading_map:
-            return
+        self._refresh_lock = False
+        self._loading_map = False
+        self._refresh_current_cluster_mode(force=False)
+
+    def _refresh_current_cluster_mode(self, force=True):
         cluster_val = (
             self.Cluster_Type_Dropdown.selected_value
             if hasattr(self, 'Cluster_Type_Dropdown')
@@ -275,7 +295,17 @@ class MapEntry(MapEntryTemplate):
             if hasattr(self, 'Threshold_Dropdown')
             else None
         )
-        self.refresh_map_display(cluster_type=cluster_val, distance_value=dist_val)
+        self.refresh_map_display(
+            cluster_type=cluster_val,
+            distance_value=dist_val,
+            force=force
+        )
+
+    def _on_fullscreen_toggled(self):
+        self._last_viewport_sig = None
+        self._last_radial_zoom = None
+        self._radial_prompt_shown = False
+        self._refresh_current_cluster_mode(force=True)
 
     def _show_paginated_user_alert(self, cluster_title, all_users):
         unique_users = sorted(list({u for u in (all_users or []) if u}))
@@ -388,110 +418,169 @@ class MapEntry(MapEntryTemplate):
             print(f'Error during search: {e}')
 
     def full_screen_map_button_click(self, **event_args):
-            print("[FS_DIAG] full_screen_map_button_click fired")
-            try:
-                gmap = self._find_js_gmap()
-                print(f"[FS_DIAG] gmap={gmap is not None}, has_setOptions={hasattr(gmap, 'setOptions') if gmap else False}, has_getDiv={hasattr(gmap, 'getDiv') if gmap else False}")
+        try:
+            dom_node = anvil.js.get_dom_node(self.map_1)
+            on_toggle = self._on_fullscreen_toggled
+            anvil.js.call_js(
+                """
+                (function(root, notifyToggle) {
+                    if (!root) return;
 
-                if gmap is not None and hasattr(gmap, 'setOptions'):
-                    try:
-                        gmap.setOptions({'fullscreenControl': True})
-                        print("[FS_DIAG] setOptions({'fullscreenControl': True}) succeeded")
-                    except Exception as opt_err:
-                        print(f"[FS_DIAG] setOptions failed: {opt_err}")
+                    var EXIT_BTN_ID = 'anvil-exit-map-fullscreen-btn';
+                    var STYLE_ID = 'anvil-fullscreen-modal-zindex-style';
 
-                dom_node = anvil.js.get_dom_node(self.map_1)
-                print(f"[FS_DIAG] dom_node={dom_node is not None}")
+                    function raiseModalsAboveFullscreen() {
+                        if (!document.getElementById(STYLE_ID)) {
+                            var style = document.createElement('style');
+                            style.id = STYLE_ID;
+                            style.textContent = [
+                                '.modal-backdrop { z-index: 199990 !important; }',
+                                '.modal, [role="dialog"], .anvil-alert { z-index: 200000 !important; }'
+                            ].join('\\n');
+                            document.head.appendChild(style);
+                        }
+                        var nodes = document.querySelectorAll('.modal, .modal-backdrop, [role="dialog"], .anvil-alert');
+                        for (var i = 0; i < nodes.length; i++) {
+                            nodes[i].style.zIndex = nodes[i].classList.contains('modal-backdrop') ? '199990' : '200000';
+                        }
+                    }
 
-                diag_result = anvil.js.call_js(
-                    """
-                (function(root, gmapObj) {
-                    var info = {
-                        hasDoc: typeof document !== 'undefined',
-                        hasFullscreenEnabled: !!(document && document.fullscreenEnabled),
-                        currentFullscreenEl: (document && document.fullscreenElement) ? (document.fullscreenElement.tagName + '#' + (document.fullscreenElement.id || '')) : null,
-                        targetTag: null,
-                        targetHasReqFs: false,
-                        foundBtnLabel: null,
-                        actionTaken: 'none',
-                        errorMsg: null
-                    };
+                    function startModalWatcher() {
+                        raiseModalsAboveFullscreen();
+                        if (window._anvilFsModalObserver) {
+                            window._anvilFsModalObserver.disconnect();
+                        }
+                        var obs = new MutationObserver(function() {
+                            raiseModalsAboveFullscreen();
+                        });
+                        obs.observe(document.body, { childList: true, subtree: true });
+                        window._anvilFsModalObserver = obs;
+                    }
 
-                    function findFullscreenButton(startNode) {
-                        if (!startNode) return null;
-                        var queue = [startNode];
+                    function stopModalWatcher() {
+                        if (window._anvilFsModalObserver) {
+                            window._anvilFsModalObserver.disconnect();
+                            window._anvilFsModalObserver = null;
+                        }
+                        var style = document.getElementById(STYLE_ID);
+                        if (style && style.parentNode) {
+                            style.parentNode.removeChild(style);
+                        }
+                    }
+
+                    function removeExitButton() {
+                        var existing = document.getElementById(EXIT_BTN_ID);
+                        if (existing && existing.parentNode) {
+                            existing.parentNode.removeChild(existing);
+                        }
+                    }
+
+                    function triggerMapResize(el) {
+                        if (window.google && window.google.maps && window.google.maps.event) {
+                            var mapDiv = el.querySelector('.gm-style') || el;
+                            if (mapDiv && mapDiv.__gm && mapDiv.__gm.gm) {
+                                window.google.maps.event.trigger(mapDiv.__gm.gm, 'resize');
+                            }
+                        }
+                    }
+
+                    function collapseMap(el) {
+                        el.dataset.anvilMapExpanded = 'false';
+                        el.setAttribute('style', el.dataset.prevStyle || '');
+                        removeExitButton();
+                        stopModalWatcher();
+                        triggerMapResize(el);
+                        setTimeout(function() {
+                            if (typeof notifyToggle === 'function') notifyToggle();
+                        }, 150);
+                    }
+
+                    function createExitButton(el) {
+                        removeExitButton();
+                        var btn = document.createElement('button');
+                        btn.id = EXIT_BTN_ID;
+                        btn.type = 'button';
+                        btn.textContent = 'Exit Full Screen';
+                        btn.style.position = 'fixed';
+                        btn.style.top = '16px';
+                        btn.style.right = '16px';
+                        btn.style.zIndex = '100000';
+                        btn.style.padding = '10px 16px';
+                        btn.style.fontSize = '14px';
+                        btn.style.fontWeight = '600';
+                        btn.style.color = '#ffffff';
+                        btn.style.backgroundColor = '#1a73e8';
+                        btn.style.border = 'none';
+                        btn.style.borderRadius = '6px';
+                        btn.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.35)';
+                        btn.style.cursor = 'pointer';
+                        btn.addEventListener('click', function(ev) {
+                            ev.preventDefault();
+                            ev.stopPropagation();
+                            collapseMap(el);
+                        });
+                        document.body.appendChild(btn);
+                    }
+
+                    function toggleExpanded(el) {
+                        var isExpanded = el.dataset.anvilMapExpanded === 'true';
+                        if (!isExpanded) {
+                            el.dataset.prevStyle = el.getAttribute('style') || '';
+                            el.dataset.anvilMapExpanded = 'true';
+                            el.style.position = 'fixed';
+                            el.style.top = '0';
+                            el.style.left = '0';
+                            el.style.width = '100vw';
+                            el.style.height = '100vh';
+                            el.style.zIndex = '99999';
+                            el.style.background = '#ffffff';
+                            createExitButton(el);
+                            startModalWatcher();
+                            triggerMapResize(el);
+                        } else {
+                            collapseMap(el);
+                        }
+                        setTimeout(function() {
+                            if (typeof notifyToggle === 'function') notifyToggle();
+                        }, 150);
+                    }
+
+                    if (document && document.fullscreenEnabled) {
+                        var queue = [root];
                         var visited = new Set();
                         while (queue.length > 0) {
                             var node = queue.shift();
                             if (!node || visited.has(node)) continue;
                             visited.add(node);
-
                             if (node.tagName === 'BUTTON') {
                                 var label = (node.getAttribute('aria-label') || node.title || '').toLowerCase();
                                 if (label.indexOf('fullscreen') !== -1 || label.indexOf('full screen') !== -1) {
-                                    info.foundBtnLabel = label;
-                                    return node;
+                                    node.click();
+                                    startModalWatcher();
+                                    setTimeout(function() {
+                                        if (typeof notifyToggle === 'function') notifyToggle();
+                                    }, 150);
+                                    return;
                                 }
                             }
-                            if (node.shadowRoot) {
-                                queue.push(node.shadowRoot);
-                            }
+                            if (node.shadowRoot) queue.push(node.shadowRoot);
                             if (node.children) {
                                 for (var i = 0; i < node.children.length; i++) {
                                     queue.push(node.children[i]);
                                 }
                             }
                         }
-                        return null;
                     }
 
-                    try {
-                        var target = (gmapObj && typeof gmapObj.getDiv === 'function') ? gmapObj.getDiv() : root;
-                        if (target) {
-                            info.targetTag = target.tagName || 'unknown';
-                            var req = target.requestFullscreen || target.webkitRequestFullscreen || target.mozRequestFullScreen || target.msRequestFullscreen;
-                            info.targetHasReqFs = (typeof req === 'function');
-                        }
-
-                        var btn = findFullscreenButton(document.body) || findFullscreenButton(root);
-                        if (btn) {
-                            btn.click();
-                            info.actionTaken = 'clicked_native_button';
-                            return info;
-                        }
-
-                        if (target && typeof req === 'function') {
-                            var res = req.call(target);
-                            if (res && typeof res.catch === 'function') {
-                                res.catch(function(err) {
-                                    console.log('[FS_DIAG] requestFullscreen promise rejected:', err);
-                                });
-                            }
-                            info.actionTaken = 'called_requestFullscreen';
-                            return info;
-                        }
-
-                        info.actionTaken = 'no_button_and_no_requestFullscreen';
-                        return info;
-                    } catch (e) {
-                        info.actionTaken = 'exception';
-                        info.errorMsg = String(e);
-                        return info;
-                    }
+                    toggleExpanded(root);
                 })
                 """,
-                    dom_node,
-                    gmap
-                )
-                print(f"[FS_DIAG] js_result={diag_result}")
-                alert(content=str(diag_result), title="Fullscreen Diagnostic", large=True)
-            except Exception as e:
-                print(f"[FS_DIAG] python exception: {e}")
-                alert(content=f"Python exception: {e}", title="Fullscreen Diagnostic Error", large=False)
+                dom_node,
+                on_toggle
+            )
+        except Exception as e:
+            alert(f"Error toggling fullscreen map: {e}", title="Fullscreen Error")
 
-
-
-              
     def country_dropdown_change(self, **event_args):
         selected_country = self.Country_Code_Value.selected_value
         self.State_Province_Region_Value.items = []
@@ -544,13 +633,8 @@ class MapEntry(MapEntryTemplate):
 
             is_radial = self._is_radial_mode(cluster_type)
             if is_radial:
-                if not self._radius_selected and not distance_value:
-                    return
-                try:
-                    radius = float(distance_value)
-                except (TypeError, ValueError):
-                    return
-                if radius <= 0:
+                radius = self._parse_radius_value(distance_value)
+                if radius is None:
                     return
 
                 target_width = 2.0 * radius
@@ -572,7 +656,7 @@ class MapEntry(MapEntryTemplate):
                 self._radial_prompt_shown = False
                 self._last_radial_zoom = zoom_level
 
-            viewport_sig = (str(cluster_type).lower(), distance_value, zoom_level, str(bounds))
+            viewport_sig = (str(cluster_type).lower(), str(distance_value), str(zoom_level), str(bounds))
             if not force and viewport_sig == self._last_viewport_sig:
                 return
             self._last_viewport_sig = viewport_sig
@@ -580,7 +664,7 @@ class MapEntry(MapEntryTemplate):
             markers = anvil.server.call(
                 'get_clustered_map_markers',
                 cluster_type=cluster_type,
-                distance_value=distance_value,
+                distance_value=radius if is_radial else distance_value,
                 active_record_id=active_record_id,
                 use_test_table=self.use_test_table,
                 bounds=bounds,
@@ -708,7 +792,7 @@ class MapEntry(MapEntryTemplate):
     def threshold_dropdown_change(self, sender, **event_args):
         self._radial_prompt_shown = False
         self._last_radial_zoom = None
-        self._radius_selected = bool(sender.selected_value)
+        self._radius_selected = self._parse_radius_value(sender.selected_value) is not None
         cluster_type_val = self.Cluster_Type_Dropdown.selected_value
         self.refresh_map_display(cluster_type=cluster_type_val, distance_value=sender.selected_value, force=True)
 
