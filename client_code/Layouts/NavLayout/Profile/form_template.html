@@ -1,0 +1,48 @@
+<anvil-form layout="Mapping_Test.Layouts.NavLayout">
+  <anvil-block slot="Profile">
+    <anvil-component type="Label" name="title_label" prop:role="h1" prop:text="Profile"></anvil-component>
+  </anvil-block>
+  <anvil-block slot="content">
+    <anvil-component type="ColumnPanel" name="about_card" prop:role="card">
+      <anvil-component type="RichText" name="about_rich_text" prop:format="markdown" prop:content="### About the User Profile
+
+Welcome! Add your overview, guidelines, and details about the map here."></anvil-component>
+      <anvil-component type="TextArea" name="text_area_1" prop:text="Profile questions
+	screen name
+	validated email
+	location data
+	public/ non-public identity
+	level of participation in naturism (including non-participation but supporter of naturist freedoms)
+	member type
+		single individual
+		couple
+		family member
+		validated association
+
+Mapping feature
+
+Naturist bona-fides - some method to certify than an individual is a true naturist and is safe (maybe a paid function that includes a criminal background check) (how do naturist organizations do background checks?)
+
+Automatic Validation by organization - API
+
+Membership Badges
+
+Naturist ethos pledge
+
+General discussion board
+
+Local meetup facility
+
+Validated social media identities
+
+Organizing resources
+	how to organize
+	petition generator
+
+Friending
+
+Direct messaging 
+" prop:height="502.428466796875" container:grid_position="WKAXRB,BWPHRX"></anvil-component>
+    </anvil-component>
+  </anvil-block>
+</anvil-form>

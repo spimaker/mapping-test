@@ -61,3 +61,13 @@ class NavLayout(NavLayoutTemplate):
   def logout_link_click(self, **event_args):
     """This method is called when the link is clicked"""
     open_form("Layouts.NavLayout.Logout")
+
+  @handle("profile", "click")
+  def profile_click(self, **event_args):
+    """This method is called when the link is clicked"""
+    open_form("Layouts.NavLayout.Profile")
+
+  @handle("have_done", "click")
+  def have_done_click(self, **event_args):
+    """This method is called when the link is clicked"""
+    open_form("Layouts.NavLayout.HaveDone")
