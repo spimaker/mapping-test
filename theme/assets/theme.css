@@ -48,9 +48,10 @@ body {
 }
 
 .page-main {
-  width: min(1120px, calc(100% - 40px));
-  margin: 0 auto;
-  padding: 40px 0 64px;
+  width: calc(100% - 40px);
+  max-width: none;
+  margin: 0 20px;
+  padding: 24px 0 64px;
 }
 
 .empty-section {

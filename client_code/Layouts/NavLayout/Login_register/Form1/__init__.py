@@ -8,8 +8,12 @@ from anvil.tables import app_tables
 
 
 class Form1(Form1Template):
+
   def __init__(self, **properties):
-    # Set Form properties and Data Bindings.
     super().__init__(**properties)
 
-    # Any code you write here will run before the form opens.
+  @handle("self", "show")
+  def form_show(self, **event_args):
+    print("Form1 show fired; layout:", getattr(self, "layout", None))
+    if hasattr(self, "layout") and hasattr(self.layout, "refresh_auth_links"):
+      self.layout.refresh_auth_links()

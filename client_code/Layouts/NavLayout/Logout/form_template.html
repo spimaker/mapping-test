@@ -1,0 +1,12 @@
+<anvil-form layout="Mapping_Test.Layouts.NavLayout">
+  <anvil-block slot="title">
+    <anvil-component type="Label" name="title_label" prop:role="h1" prop:text="Naturist Map Logout"></anvil-component>
+  </anvil-block>
+  <anvil-block slot="content">
+    <anvil-component type="ColumnPanel" name="about_card" prop:role="card">
+      <anvil-component type="Label" name="label_1" prop:text="Are you sure you want to log out?" container:grid_position="GGPZDP,AOVJRI"></anvil-component>
+      <anvil-component type="DropDown" name="logout_drop_down" prop:items='["<select>","Yes - Log me out","No - Continue this session"]' container:grid_position="GGPZDP,GKFKFB"></anvil-component>
+      <anvil-component type="Button" name="continue_button" prop:text="Continue" container:grid_position="GGPZDP,LTSCKN"></anvil-component>
+    </anvil-component>
+  </anvil-block>
+</anvil-form>

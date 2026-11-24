@@ -1,8 +1,15 @@
-from ._anvil_designer import login_registerTemplate
+from ._anvil_designer import Login_registerTemplate
 import anvil.server
 from anvil import *
 
-class login_register(login_registerTemplate):
+try:
+  from ...Layouts.NavLayout import get_active_nav_layout
+except Exception:
+  get_active_nav_layout = None
+
+
+class Login_register(Login_registerTemplate):
+
   def __init__(self, **properties):
     super().__init__(**properties)
 
@@ -17,6 +24,14 @@ class login_register(login_registerTemplate):
     self.active_email = ""
     self.show_entry_screens()
 
+  def _sync_nav_auth_state(self, is_logged_in):
+    """Updates NavLayout auth links immediately before navigating away."""
+    nav = getattr(self, "layout", None)
+    if nav is None and callable(get_active_nav_layout):
+      nav = get_active_nav_layout()
+    if nav is not None and hasattr(nav, "set_auth_state"):
+      nav.set_auth_state(bool(is_logged_in))
+
   def show_entry_screens(self):
     """Shows registration and login sections; hides code verification section."""
     # Registration Section Visible
@@ -28,14 +43,17 @@ class login_register(login_registerTemplate):
     self.submit_registration_button.visible = True
 
     # Login Section Visible (Make sure this matches your component name, e.g., login_email_value)
-    if hasattr(self, 'login_email_value'):
+    if hasattr(self, "login_email_value"):
       self.login_email_value.visible = True
     self.submit_login_button.visible = True
 
     # Code Verification Section Hidden
-    if hasattr(self, 'code_value_label'): self.code_value_label.visible = False
-    if hasattr(self, 'code_value'): self.code_value.visible = False
-    if hasattr(self, 'submit_code_button'): self.submit_code_button.visible = False
+    if hasattr(self, "code_value_label"):
+      self.code_value_label.visible = False
+    if hasattr(self, "code_value"):
+      self.code_value.visible = False
+    if hasattr(self, "submit_code_button"):
+      self.submit_code_button.visible = False
 
   def show_verification_screen(self, email):
     """Hides entry sections; shows ONLY the 6-digit code verification components."""
@@ -50,42 +68,59 @@ class login_register(login_registerTemplate):
     self.submit_registration_button.visible = False
 
     # Login Section Hidden
-    if hasattr(self, 'login_email_value'):
+    if hasattr(self, "login_email_value"):
       self.login_email_value.visible = False
     self.submit_login_button.visible = False
 
     # Code Verification Section Visible
-    if hasattr(self, 'code_value_label'):
+    if hasattr(self, "code_value_label"):
       self.code_value_label.visible = True
       self.code_value_label.text = f"Enter the 6-digit code sent to {email}:"
 
-    if hasattr(self, 'code_value'): 
+    if hasattr(self, "code_value"):
       self.code_value.visible = True
       self.code_value.text = ""
 
-    if hasattr(self, 'submit_code_button'): 
+    if hasattr(self, "submit_code_button"):
       self.submit_code_button.visible = True
 
   @anvil.handle("submit_registration_button", "click")
   def submit_registration_button_click(self, **event_args):
     """Handles new user registration submission."""
     email = self.email_value.text.strip() if self.email_value.text else ""
-    user_name = self.user_name_value.text.strip() if self.user_name_value.text else ""
-    first_name = self.first_name_value.text.strip() if self.first_name_value.text else ""
-    last_name = self.last_name_value.text.strip() if self.last_name_value.text else ""
-    mobile_phone = self.mobile_phone_value.text.strip() if self.mobile_phone_value.text else ""
+    user_name = (
+        self.user_name_value.text.strip() if self.user_name_value.text else ""
+    )
+    first_name = (
+        self.first_name_value.text.strip() if self.first_name_value.text else ""
+    )
+    last_name = (
+        self.last_name_value.text.strip() if self.last_name_value.text else ""
+    )
+    mobile_phone = (
+        self.mobile_phone_value.text.strip()
+        if self.mobile_phone_value.text
+        else ""
+    )
 
     if not email or not user_name:
-      anvil.alert("Email and Username are required for registration.", title="Missing Information")
+      anvil.alert(
+          "Email and Username are required for registration.",
+          title="Missing Information",
+      )
       return
 
     try:
-      res = anvil.server.call('register_user', email, user_name, first_name, last_name, mobile_phone)
-      if res['status'] == 'success':
-        anvil.Notification("Registration successful! Check your email for the code.").show()
+      res = anvil.server.call(
+          "register_user", email, user_name, first_name, last_name, mobile_phone
+      )
+      if res["status"] == "success":
+        anvil.Notification(
+            "Registration successful! Check your email for the code."
+        ).show()
         self.show_verification_screen(email)
       else:
-        anvil.alert(res['message'], title="Registration Failed")
+        anvil.alert(res["message"], title="Registration Failed")
     except Exception as e:
       anvil.alert(f"An error occurred: {e}")
 
@@ -93,38 +128,53 @@ class login_register(login_registerTemplate):
   def submit_login_button_click(self, **event_args):
     """Handles login submission for existing users using login_email_value."""
     # Fallback check in case the component is named login_email_value vs email_value
-    target_box = self.login_email_value if hasattr(self, 'login_email_value') else getattr(self, 'email_value', None)
-    email = target_box.text.strip() if target_box and target_box.text else ""
+    target_box = (
+        self.login_email_value
+        if hasattr(self, "login_email_value")
+        else getattr(self, "email_value", None)
+    )
+    email = (
+        target_box.text.strip() if target_box and target_box.text else ""
+    )
 
     if not email:
-      anvil.alert("Please enter your email address.", title="Missing Email")
+      anvil.alert(
+          "Please enter your email address.", title="Missing Email"
+      )
       return
 
     try:
-      res = anvil.server.call('request_login_otp', email)
-      if res['status'] == 'success':
+      res = anvil.server.call("request_login_otp", email)
+      if res["status"] == "success":
         anvil.Notification("Login code sent! Check your email.").show()
         self.show_verification_screen(email)
       else:
-        anvil.alert(res['message'], title="Login Failed")
+        anvil.alert(res["message"], title="Login Failed")
     except Exception as e:
       anvil.alert(f"An error occurred: {e}")
 
   @anvil.handle("submit_code_button", "click")
   def submit_code_button_click(self, **event_args):
     """Handles verification of the 6-digit code."""
-    code = self.code_value.text.strip() if hasattr(self, 'code_value') and self.code_value.text else ""
+    code = (
+        self.code_value.text.strip()
+        if hasattr(self, "code_value") and self.code_value.text
+        else ""
+    )
 
     if not code:
-      anvil.alert("Please enter the 6-digit verification code.", title="Missing Code")
+      anvil.alert(
+          "Please enter the 6-digit verification code.", title="Missing Code"
+      )
       return
 
     try:
-      res = anvil.server.call('verify_email_otp', self.active_email, code)
-      if res['status'] == 'success':
+      res = anvil.server.call("verify_email_otp", self.active_email, code)
+      if res["status"] == "success":
+        self._sync_nav_auth_state(res.get("is_logged_in", True))
         anvil.Notification("Successfully authenticated!").show()
-        open_form('Form1') # Transition to map form
+        open_form("Layouts.NavLayout.Login_register.Form1")  # Transition to map form
       else:
-        anvil.alert(res['message'], title="Verification Failed")
+        anvil.alert(res["message"], title="Verification Failed")
     except Exception as e:
       anvil.alert(f"An error occurred: {e}")
