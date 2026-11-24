@@ -29,8 +29,8 @@ class NavLayout(NavLayoutTemplate):
     session_email = None
     try:
       session_email = anvil.server.call("get_authenticated_user")
-    except Exception as e:
-      print("refresh_auth_links error:", e)
+    except Exception:
+      session_email = None
     self.set_auth_state(bool(session_email))
 
   @handle("self", "show")
@@ -39,20 +39,25 @@ class NavLayout(NavLayoutTemplate):
 
   @handle("about_link", "click")
   def about_link_click(self, **event_args):
+    """This method is called when the link is clicked"""
     open_form("Layouts.NavLayout.About")
 
   @handle("view_scorecard_link", "click")
   def scorecard_link_click(self, **event_args):
+    """This method is called when the link is clicked"""
     open_form("Layouts.NavLayout.Scorecard")
 
   @handle("view_map_link", "click")
   def map_link_click(self, **event_args):
+    """This method is called when the link is clicked"""
     open_form("Layouts.NavLayout.MapEntry")
 
   @handle("login_register_link", "click")
   def login_link_click(self, **event_args):
+    """This method is called when the link is clicked"""
     open_form("Layouts.NavLayout.Login_register")
 
   @handle("logout_link", "click")
   def logout_link_click(self, **event_args):
+    """This method is called when the link is clicked"""
     open_form("Layouts.NavLayout.Logout")
