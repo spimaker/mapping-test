@@ -7,11 +7,6 @@ from anvil.tables import app_tables
 
 EXPECTED_FILENAME = "CA_Postal.txt"
 
-print(
-    f"[DIAG] DataImportGeonamesData module loaded (target={EXPECTED_FILENAME})",
-    flush=True,
-)
-
 
 @anvil.server.callable
 def ping_import_test():

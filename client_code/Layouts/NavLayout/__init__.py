@@ -71,3 +71,38 @@ class NavLayout(NavLayoutTemplate):
   def have_done_click(self, **event_args):
     """This method is called when the link is clicked"""
     open_form("Layouts.NavLayout.HaveDone")
+
+  @handle("best_friends", "click")
+  def best_friends_click(self, **event_args):
+    """This method is called when the link is clicked"""
+    open_form("Layouts.NavLayout.BestFriends")
+
+  @handle("blogs", "click")
+  def blogs_cllick(self, **event_args):
+    """This method is called when the link is clicked"""
+    open_form("Layouts.NavLayout.BestFriends.Blogs")
+
+  @handle("websites", "click")
+  def websites_click(self, **event_args):
+    """This method is called when the link is clicked"""
+    open_form("Layouts.NavLayout.BestFriends.Websites")
+
+  @handle("social", "click")
+  def social_click(self, **event_args):
+    """This method is called when the link is clicked"""
+    open_form("Layouts.NavLayout.BestFriends.Social")
+
+  @handle("commercial", "click")
+  def commercial_click(self, **event_args):
+    """This method is called when the link is clicked"""
+    open_form("Layouts.NavLayout.BestFriends.Commercial")
+
+  @handle("associations", "click")
+  def associations_click(self, **event_args):
+    """This method is called when the link is clicked"""
+    open_form("Layouts.NavLayout.BestFriends.Associations")
+
+  @handle("discussion", "click")
+  def discussion_click(self, **event_args):
+    """This method is called when the link is clicked"""
+    open_form("Layouts.NavLayout.Discussion")
