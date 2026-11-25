@@ -5,7 +5,7 @@ import anvil.users
 import anvil.tables as tables
 import anvil.tables.query as q
 from anvil.tables import app_tables
-from AuthVisibilityService import auth_visibility
+from .AuthVisibilityService import auth_visibility
 
 _active_nav_layout = None
 _best_friends_expanded = False
