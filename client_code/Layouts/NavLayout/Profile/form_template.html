@@ -4,9 +4,7 @@
   </anvil-block>
   <anvil-block slot="content">
     <anvil-component type="ColumnPanel" name="about_card" prop:role="card">
-      <anvil-component type="RichText" name="about_rich_text" prop:format="markdown" prop:content="### About the User Profile
-
-Welcome! Add your overview, guidelines, and details about the map here."></anvil-component>
+      <anvil-component type="RichText" name="about_rich_text" prop:format="markdown" prop:content="### About the User Profile" container:grid_position="RPAYCI,NPMFIG"></anvil-component>
       <anvil-component type="TextArea" name="text_area_1" prop:text="Profile questions
 	screen name
 	validated email
@@ -30,20 +28,19 @@ Welcome! Add your overview, guidelines, and details about the map here."></anvil
 		single individual
 		couple
 		family member
-		validated association
+         (Ideally for users with the same address, their records will be linked and each individual will be tagged as spouse, adult child, minor child, other family member, non-family member)
 
+Badges
 
-Naturist bona-fides - some method to certify than an individual is a true naturist and is safe (maybe a paid function that includes a criminal background check) (how do naturist organizations do background checks?)
+Badges, as described below, provide evidence that the user is a Naturist in good standing. Are they a member of naturist organizations? Are they willing to abide by a Naturist ethics pledge? As a stretch are they willing to undergo a criminal background check? Though not perfect, these badges give some indication that they are good citizens in the naturist community.
 
-Automatic Validation by organization - API
+Naturist association membership badges - Naturist associations will be provided with an API (application program interface) whereby a member of the association can submit a form that includes at a minimum the member's first and last name,membership number, expiration date and Map Project user name. When a vaild record is submitted, a badge representing the association will be added to the users profile. After the member expiration date, the Map Project user will be instructed to return to the association and resubmit their validation with an updated expiration date. 
 
-Membership Badges
+Naturist ethics pledge - I would like to work with leadership in the naturist community to develop a Naturist Ethics Pledge. Users who choose to agree to this pledge will have a pledge badge attached to their profile  
 
-Naturist ethos pledge
+Criminal background check - how are criminal background checks handled in the organized naturist community? Pass the background check, get a badge for that.
 
-General discussion board
-
-Local meetup facility
+-- Future Development Possibilities --
 
 Validated social media identities
 
@@ -54,7 +51,7 @@ Organizing resources
 Friending
 
 Direct messaging 
-" prop:height="502.428466796875" container:grid_position="WKAXRB,BWPHRX"></anvil-component>
+" prop:height="502.428466796875" container:grid_position="HNGFTI,ICHINE"></anvil-component>
     </anvil-component>
   </anvil-block>
 </anvil-form>

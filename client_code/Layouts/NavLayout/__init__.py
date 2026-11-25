@@ -7,6 +7,14 @@ import anvil.tables.query as q
 from anvil.tables import app_tables
 
 _active_nav_layout = None
+_best_friends_expanded = False
+_BEST_FRIENDS_SUBLINKS = (
+    "blogs",
+    "websites",
+    "social",
+    "commercial",
+    "associations",
+)
 
 
 def get_active_nav_layout():
@@ -19,7 +27,21 @@ class NavLayout(NavLayoutTemplate):
     global _active_nav_layout
     _active_nav_layout = self
     super().__init__(**properties)
+    self.set_best_friends_expanded(_best_friends_expanded)
     self.refresh_auth_links()
+
+  def set_best_friends_expanded(self, expanded):
+    global _best_friends_expanded
+    _best_friends_expanded = bool(expanded)
+
+    if hasattr(self, "best_friends") and self.best_friends is not None:
+      arrow = "▾" if _best_friends_expanded else "▸"
+      self.best_friends.text = f"Best Friends {arrow}"
+
+    for name in _BEST_FRIENDS_SUBLINKS:
+      comp = getattr(self, name, None)
+      if comp is not None:
+        comp.visible = _best_friends_expanded
 
   def set_auth_state(self, is_logged_in):
     self.login_register_link.visible = not bool(is_logged_in)
@@ -35,6 +57,7 @@ class NavLayout(NavLayoutTemplate):
 
   @handle("self", "show")
   def form_show(self, **event_args):
+    self.set_best_friends_expanded(_best_friends_expanded)
     self.refresh_auth_links()
 
   @handle("about_link", "click")
@@ -75,10 +98,11 @@ class NavLayout(NavLayoutTemplate):
   @handle("best_friends", "click")
   def best_friends_click(self, **event_args):
     """This method is called when the link is clicked"""
+    self.set_best_friends_expanded(not _best_friends_expanded)
     open_form("Layouts.NavLayout.BestFriends")
 
   @handle("blogs", "click")
-  def blogs_cllick(self, **event_args):
+  def blogs_click(self, **event_args):
     """This method is called when the link is clicked"""
     open_form("Layouts.NavLayout.BestFriends.Blogs")
 
@@ -106,3 +130,8 @@ class NavLayout(NavLayoutTemplate):
   def discussion_click(self, **event_args):
     """This method is called when the link is clicked"""
     open_form("Layouts.NavLayout.Discussion")
+
+  @handle("meetups", "click")
+  def meetups_click(self, **event_args):
+    """This method is called when the link is clicked"""
+    open_form("Layouts.NavLayout.Meetups")
