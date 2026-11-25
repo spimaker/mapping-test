@@ -15,6 +15,7 @@ _BEST_FRIENDS_SUBLINKS = (
     "social",
     "commercial",
     "associations",
+    "books"
 )
 
 
@@ -136,3 +137,8 @@ class NavLayout(NavLayoutTemplate):
   def meetups_click(self, **event_args):
     """This method is called when the link is clicked"""
     open_form("Layouts.NavLayout.Meetups")
+
+  @handle("books", "click")
+  def books_click(self, **event_args):
+    """This method is called when the link is clicked"""
+    open_form("Layouts.NavLayout.BestFriends.Books")
