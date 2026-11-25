@@ -262,3 +262,59 @@ def clear_authenticated_user():
   except Exception:
     pass
   return {"status": "success", "is_logged_in": False}
+
+def _safe_get(row, col_name):
+  if row is None:
+    return None
+  try:
+    return row[col_name]
+  except Exception:
+    return None
+
+
+@anvil.server.callable
+def get_logged_in_user_postal_location(use_test_table=True):
+  user = anvil.users.get_user()
+  if not user:
+    return None
+
+  lat = _safe_get(user, "latitude")
+  lon = _safe_get(user, "longitude")
+  postal_code = _safe_get(user, "postal_code")
+
+  if lat is None or lon is None:
+    table = (
+        app_tables.mapitems_test
+        if use_test_table
+        else app_tables.mapitems
+    )
+    row = None
+    try:
+      row = table.get(user=user)
+    except Exception:
+      row = None
+
+    if row is None:
+      identifier = _safe_get(user, "email") or _safe_get(user, "username")
+      if identifier:
+        try:
+          row = table.get(user=identifier)
+        except Exception:
+          row = None
+
+    if row is not None:
+      if lat is None:
+        lat = _safe_get(row, "latitude")
+      if lon is None:
+        lon = _safe_get(row, "longitude")
+      if not postal_code:
+        postal_code = _safe_get(row, "postal_code")
+
+  if lat is None or lon is None:
+    return None
+
+  return {
+      "lat": float(lat),
+      "lon": float(lon),
+      "postal_code": postal_code or "My Postal Code",
+  }  
