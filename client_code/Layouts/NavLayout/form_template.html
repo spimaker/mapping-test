@@ -2,9 +2,9 @@
   <anvil-block slot="actions"></anvil-block>
   <anvil-block slot="content">
     <style>
-  .nlc-grid-2-10 {
+  .nlc-grid-3-9 {
     display: grid;
-    grid-template-columns: calc(100% * 2 / 12) 1fr;
+    grid-template-columns: calc(100% * 3 / 12) 1fr;
     gap: 16px;
     align-items: start;
     width: 100%;
@@ -14,13 +14,13 @@
     box-sizing: border-box;
   }
   @media (max-width: 760px) {
-    .nlc-grid-2-10 {
+    .nlc-grid-3-9 {
       grid-template-columns: 1fr;
     }
   }
-  .content .anvil-container:has(.nlc-grid-2-10),
-  .anvil-inject-slot:has(.nlc-grid-2-10),
-  main .anvil-container:has(.nlc-grid-2-10) {
+  .content .anvil-container:has(.nlc-grid-3-9),
+  .anvil-inject-slot:has(.nlc-grid-3-9),
+  main .anvil-container:has(.nlc-grid-3-9) {
     max-width: 100% !important;
     width: 100% !important;
     margin-left: 0 !important;
@@ -28,7 +28,7 @@
     padding-right: 16px !important;
   }
 </style>
-    <div class="nlc-grid-2-10">
+    <div class="nlc-grid-3-9">
       <div>
         <anvil-component type="ColumnPanel" name="column_panel_1" prop:role="card">
           <anvil-component type="Link" name="about_link" prop:text="About the Naturist Map"></anvil-component>
@@ -37,9 +37,10 @@
           <anvil-component type="Link" name="blogroll" prop:text="Best Friends" container:grid_position="EKJPBX,LGSQVT"></anvil-component>
           <anvil-component type="Link" name="blogs" prop:text="   Blogs" container:grid_position="IPWXQB,YPWJKP"></anvil-component>
           <anvil-component type="Link" name="websites" prop:text="   Websites" container:grid_position="DIFVLR,RBFIDR"></anvil-component>
-          <anvil-component type="Link" name="social" prop:text="   Social" container:grid_position="HCUSGU,QJBHNG"></anvil-component>
-          <anvil-component type="Link" name="commercial" prop:text="   Comm." container:grid_position="LIGDIB,YOYISM"></anvil-component>
-          <anvil-component type="Link" name="associations" prop:text="   Assoc." container:grid_position="IBEBBA,CLAEYG"></anvil-component>
+          <anvil-component type="Link" name="social" prop:text="   Social Media" container:grid_position="HCUSGU,QJBHNG"></anvil-component>
+          <anvil-component type="Link" name="commercial" prop:text="   Commercial" container:grid_position="LIGDIB,YOYISM"></anvil-component>
+          <anvil-component type="Link" name="associations" prop:text="   Associations" container:grid_position="IBEBBA,CLAEYG"></anvil-component>
+          <anvil-component type="Link" name="discussion" prop:text="Discussion Forums" container:grid_position="HHTKLZ,CSKMCT"></anvil-component>
           <anvil-component type="Link" name="login_register_link" prop:text="Login / Register" container:grid_position="NHBPVZ,GITVLF"></anvil-component>
           <anvil-component type="Link" name="logout_link" prop:text="Logout" container:grid_position="EUOCFT,KGAWQF"></anvil-component>
           <anvil-component type="Link" name="profile" prop:text="Profile" container:grid_position="FFFVCD,NCABEC"></anvil-component>
