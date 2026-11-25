@@ -1,5 +1,6 @@
 unique_ids:
   assets:
+    Screenshot 2026-11-24 at 9.00.58 PM.png: '1795583007790189656371997.56503'
     theme.css: DIUWWRXMILDQD2YPGOWIUA7NKX4DNGUF
   forms:
     ConversionProcesses: '1794441939302167693405266.3399'
@@ -26,6 +27,7 @@ unique_ids:
     RegionRow: '1794284986601166075321968.02942'
     Scorecard: '1794284968934580069387717.2277'
   modules:
+    AuthVisibilityService: '1795584695881309679495935.2844'
     Layouts: L2XERXKM5GXZCTX32MKMPJJVSQJKHRUK
   scripts: {}
   server_modules:

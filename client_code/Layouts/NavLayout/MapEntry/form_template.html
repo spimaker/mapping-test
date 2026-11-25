@@ -43,7 +43,7 @@
 
 Center the map where you want to zoom into and press the + in the lower right corner to zooom. As you continue to center and zoom into the map, the map marker dots will divide and get smaller, representing smaller areas of the map. Once the zoom level resolves to where users can be listed at the city or postal code levels, the dot will change color from blue to purple. Clicking on the dot at that time will reveal a list of users in that geographic area" prop:height="253.57391357421875" container:grid_position="SDHYAI,PYCPQK"></anvil-component>
       <anvil-component type="GridPanel" name="grid_panel_3" container:grid_position="FKZHYJ,ICNDKH">
-        <anvil-component type="Button" name="Load_Clusters_Button" prop:text="Load Clusters" prop:visible="false" container:row="ILGUOZ" container:width_xs="5" container:col_xs="0"></anvil-component>
+        <anvil-component type="Button" name="Map_my_location" prop:text="Map_my_location" prop:visible="false" on:click="self.map_my_location_click" container:row="ILGUOZ" container:width_xs="5" container:col_xs="0"></anvil-component>
         <anvil-component type="Button" name="fullscreen_button" prop:text="Full Screen Map" on:click="self.full_screen_map_button_click" container:row="ILGUOZ" container:width_xs="5" container:col_xs="7"></anvil-component>
       </anvil-component>
       <anvil-component type="GoogleMap" name="map_1" prop:height="530.07470703125" container:grid_position="XFSJRJ,HMHCHW"></anvil-component>

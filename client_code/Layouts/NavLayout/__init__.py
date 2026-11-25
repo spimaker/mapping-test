@@ -5,6 +5,7 @@ import anvil.users
 import anvil.tables as tables
 import anvil.tables.query as q
 from anvil.tables import app_tables
+from AuthVisibilityService import auth_visibility
 
 _active_nav_layout = None
 _best_friends_expanded = False
@@ -27,6 +28,12 @@ class NavLayout(NavLayoutTemplate):
     global _active_nav_layout
     _active_nav_layout = self
     super().__init__(**properties)
+
+    if hasattr(self, "login_register_link") and self.login_register_link is not None:
+      auth_visibility.bind(self.login_register_link, "login_register_link")
+    if hasattr(self, "logout_link") and self.logout_link is not None:
+      auth_visibility.bind(self.logout_link, "logout_link")
+
     self.set_best_friends_expanded(_best_friends_expanded)
     self.refresh_auth_links()
 
@@ -44,16 +51,10 @@ class NavLayout(NavLayoutTemplate):
         comp.visible = _best_friends_expanded
 
   def set_auth_state(self, is_logged_in):
-    self.login_register_link.visible = not bool(is_logged_in)
-    self.logout_link.visible = bool(is_logged_in)
+    auth_visibility.set_logged_in(bool(is_logged_in))
 
   def refresh_auth_links(self):
-    session_email = None
-    try:
-      session_email = anvil.server.call("get_authenticated_user")
-    except Exception:
-      session_email = None
-    self.set_auth_state(bool(session_email))
+    auth_visibility.refresh_auth_state()
 
   @handle("self", "show")
   def form_show(self, **event_args):

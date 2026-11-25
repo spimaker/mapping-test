@@ -1,19 +1,20 @@
 <anvil-form layout="Mapping_Test.Layouts.NavLayout">
-  <anvil-block slot="Profile">
+  <anvil-block slot="title">
     <anvil-component type="Label" name="title_label" prop:role="h1" prop:text="Profile"></anvil-component>
   </anvil-block>
   <anvil-block slot="content">
     <anvil-component type="ColumnPanel" name="about_card" prop:role="card">
-      <anvil-component type="RichText" name="about_rich_text" prop:format="markdown" prop:content="### About the User Profile" container:grid_position="RPAYCI,NPMFIG"></anvil-component>
+      <anvil-component type="RichText" name="about_rich_text" prop:format="markdown" prop:content="### About the User Profile
+        " container:grid_position="RPAYCI,NPMFIG"></anvil-component>
       <anvil-component type="TextArea" name="text_area_1" prop:text="Profile questions
-	screen name
-	validated email
-	location data
-	public/ non-public identity
+  screen name
+  validated email
+  location data
+  public/ non-public identity
     first name / last name (conditionally optional)
     textable mobile phone (conditionally optional)
 
-	level of participation in naturism (including non-participation but supporter of naturist freedoms)
+  level of participation in naturism (including non-participation but supporter of naturist freedoms)
        This category is kind of undefined at this time, but along these lines
        How do you typically enjoy nudity (select most appropriate)
          Naked at home (solo)
@@ -24,10 +25,10 @@
          Not into nudity personally but support those who are
         
 
-	member type
-		single individual
-		couple
-		family member
+  member type
+    single individual
+    couple
+    family member
          (Ideally for users with the same address, their records will be linked and each individual will be tagged as spouse, adult child, minor child, other family member, non-family member)
 
 Badges
@@ -40,18 +41,23 @@ Naturist ethics pledge - I would like to work with leadership in the naturist co
 
 Criminal background check - how are criminal background checks handled in the organized naturist community? Pass the background check, get a badge for that.
 
--- Future Development Possibilities --
+The Naturist Map QR Code
+
+Any user will be able to automatically generate a custom QR code that links to their public profile. If they place this code on the header of any of their social media accounts, they can use that placement to verify their social media identity (or identities) for connecting with other users. More on that program in future development.
+" prop:height="1332.5762329101562" container:grid_position="HNGFTI,ICHINE"></anvil-component>
+      <anvil-component type="Image" name="image_1" prop:source="_/theme/Screenshot 2026-11-24 at 9.00.58 PM.png" container:grid_position="NYPOPO,XXTVRX"></anvil-component>
+      <anvil-component type="TextArea" name="text_area_2" prop:text="-- Future Development Possibilities --
 
 Validated social media identities
 
 Organizing resources
-	how to organize
-	petition generator
+  how to organize
+  petition generator
 
 Friending
 
 Direct messaging 
-" prop:height="502.428466796875" container:grid_position="HNGFTI,ICHINE"></anvil-component>
+" prop:height="297.788818359375" container:grid_position="CFKKQP,NRKCOK"></anvil-component>
     </anvil-component>
   </anvil-block>
 </anvil-form>
