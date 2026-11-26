@@ -288,43 +288,96 @@ def _safe_get(row, col_name):
     return None
 
 
+def _get_table(name):
+  """Gets a table from app_tables using exact name first, then case-insensitive match."""
+  tbl = getattr(app_tables, name, None)
+  if tbl is not None:
+    return tbl
+  target = name.lower()
+  for attr in dir(app_tables):
+    if attr.lower() == target:
+      return getattr(app_tables, attr)
+  return None
+
+
+def _find_user_row(table, user):
+  """Finds a matching row by user link, username/user_name, or email."""
+  if table is None or user is None:
+    return None
+
+  for kwargs in (
+      {"user": user},
+      {"username": _safe_get(user, "username")},
+      {"user_name": _safe_get(user, "user_name")},
+      {"user_name": _safe_get(user, "username")},
+      {"email": _safe_get(user, "email")},
+      {"user": _safe_get(user, "email")},
+      {"user": _safe_get(user, "username")},
+  ):
+    val = next(iter(kwargs.values()))
+    if not val:
+      continue
+    try:
+      row = table.get(**kwargs)
+      if row is not None:
+        return row
+    except Exception:
+      continue
+  return None
+
+
+def _coords_from_postal_summary(postal_code):
+  """Resolves (center_lat, center_lon) from Map_postal_summary by postal_code."""
+  if not postal_code:
+    return None, None
+
+  code_clean = str(postal_code).strip()
+  summary_tbl = _get_table("Map_postal_summary")
+  if summary_tbl is None:
+    return None, None
+
+  for col in ("postal_code", "Postal_code"):
+    try:
+      row = summary_tbl.get(**{col: code_clean})
+      if row is not None:
+        lat = _safe_get(row, "center_lat")
+        lon = _safe_get(row, "center_lon")
+        if lat is not None and lon is not None:
+          return float(lat), float(lon)
+    except Exception:
+      continue
+
+  return None, None
+
+
 @anvil.server.callable
 def get_logged_in_user_postal_location(use_test_table=True):
   user = anvil.users.get_user()
   if not user:
     return None
 
-  lat = _safe_get(user, "latitude")
-  lon = _safe_get(user, "longitude")
+  lat = _safe_get(user, "latitude") or _safe_get(user, "center_lat")
+  lon = _safe_get(user, "longitude") or _safe_get(user, "center_lon")
   postal_code = _safe_get(user, "postal_code")
 
-  if lat is None or lon is None:
-    table = (
-        app_tables.mapitems_test
-        if use_test_table
-        else app_tables.mapitems
-    )
-    row = None
-    try:
-      row = table.get(user=user)
-    except Exception:
-      row = None
+  table_name = "MapItems_Test" if use_test_table else "MapItems"
+  items_tbl = _get_table(table_name)
+  row = _find_user_row(items_tbl, user)
 
-    if row is None:
-      identifier = _safe_get(user, "email") or _safe_get(user, "username")
-      if identifier:
-        try:
-          row = table.get(user=identifier)
-        except Exception:
-          row = None
+  if row is not None:
+    if lat is None:
+      lat = _safe_get(row, "latitude")
+    if lon is None:
+      lon = _safe_get(row, "longitude")
+    if not postal_code:
+      postal_code = _safe_get(row, "postal_code")
 
-    if row is not None:
-      if lat is None:
-        lat = _safe_get(row, "latitude")
-      if lon is None:
-        lon = _safe_get(row, "longitude")
-      if not postal_code:
-        postal_code = _safe_get(row, "postal_code")
+  if (lat is None or lon is None) and postal_code:
+    summary_lat, summary_lon = _coords_from_postal_summary(postal_code)
+    if lat is None:
+      lat = summary_lat
+    if lon is None:
+      lon = summary_lon
 
   if lat is None or lon is None:
     return None
@@ -333,8 +386,8 @@ def get_logged_in_user_postal_location(use_test_table=True):
       "lat": float(lat),
       "lon": float(lon),
       "postal_code": postal_code or "My Postal Code",
-  }  
-
+  }
+  
 @anvil.server.callable
 def is_email_registered(email):
   cleaned = (email or "").strip().lower()
