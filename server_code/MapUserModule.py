@@ -334,3 +334,26 @@ def get_logged_in_user_postal_location(use_test_table=True):
       "lon": float(lon),
       "postal_code": postal_code or "My Postal Code",
   }  
+
+@anvil.server.callable
+def is_email_registered(email):
+  cleaned = (email or "").strip().lower()
+  if not cleaned:
+    return False
+
+  # Replace `users` with your actual users table name if different
+  users_tbl = getattr(app_tables, "users", None)
+  if users_tbl is None:
+    return False
+
+  # Check exact match first, then case-insensitive fallback if needed
+  row = users_tbl.get(email=cleaned)
+  if row is not None:
+    return True
+
+  for u in users_tbl.search():
+    existing = (u["email"] or "").strip().lower() if "email" in u else ""
+    if existing == cleaned:
+      return True
+
+  return False
