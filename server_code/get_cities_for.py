@@ -1,5 +1,4 @@
 import datetime
-import uuid
 import math
 import anvil.server
 import anvil.tables as tables
@@ -8,6 +7,7 @@ import pycountry
 from pycountry_convert import country_alpha2_to_continent_code
 from country_state_city import Country, State, City
 from geopy.geocoders import Nominatim
+from .MapUserModule import get_authenticated_user_row
 
 geolocator = Nominatim(user_agent="NaturistMappingProject")
 
@@ -24,6 +24,16 @@ DEFAULT_ZOOM_BOUNDS = {
 def get_target_table(use_test_table):
     """Helper to return the correct Data Table based on the flag."""
     return app_tables.mapitems_test if use_test_table else app_tables.mapitems
+
+
+def generate_coded_datetime_id(dt=None):
+    """Generates a sortable integer ID in YYYYMMDDHHMMSS format (UTC)."""
+    ts = dt or datetime.datetime.now(datetime.timezone.utc)
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=datetime.timezone.utc)
+    else:
+        ts = ts.astimezone(datetime.timezone.utc)
+    return int(ts.strftime("%Y%m%d%H%M%S"))
 
 
 def get_region_from_country_code(country_code):
@@ -430,55 +440,6 @@ def _build_progressive_markers(bounds=None, zoom_level=None, focus_tier=None):
 
 
 @anvil.server.callable
-def get_map_markers_with_privacy_view(active_record_id=None, show_actuals=True, use_test_table=False):
-    table = get_target_table(use_test_table)
-    all_items = list(table.search(q.fetch_only('id', 'latitude', 'longitude', 'offset_latitude', 'offset_longitude', 'user')))
-    markers = []
-
-    for row in all_items:
-        record_id = row.get('id')
-        act_lat = row.get('latitude')
-        act_lon = row.get('longitude')
-        off_lat = row.get('offset_latitude') or act_lat
-        off_lon = row.get('offset_longitude') or act_lon
-        username = row.get('user') or 'Unknown User'
-
-        is_latest = (record_id == active_record_id)
-
-        if act_lat is not None and act_lon is not None:
-            if is_latest and show_actuals:
-                markers.append({
-                    'lat': float(act_lat),
-                    'lon': float(act_lon),
-                    'color': '#FF0000',
-                    'scale': 10,
-                    'user': username,
-                    'title': username
-                })
-
-            if is_latest:
-                markers.append({
-                    'lat': float(off_lat),
-                    'lon': float(off_lon),
-                    'color': '#008000',
-                    'scale': 10,
-                    'user': username,
-                    'title': username
-                })
-            else:
-                markers.append({
-                    'lat': float(off_lat),
-                    'lon': float(off_lon),
-                    'color': '#ADD8E6',
-                    'scale': 8,
-                    'user': username,
-                    'title': username
-                })
-
-    return markers
-
-
-@anvil.server.callable
 def get_clustered_map_markers(
     cluster_type='region',
     distance_value=None,
@@ -635,15 +596,22 @@ def get_clustered_map_markers(
         return markers[:MAX_RENDER_MARKERS]
 
     else:
-        return get_map_markers_with_privacy_view(
-            active_record_id=active_record_id,
-            use_test_table=use_test_table
-        )
+        return []
 
 
 @anvil.server.callable
 def save_map_item(item_id, item_data, use_test_table=True):
+    auth_user = get_authenticated_user_row()
+    if auth_user is None:
+        raise anvil.server.PermissionDenied("You must be logged in to save a map item.")
+
+    user_name = (auth_user['user_name'] or '').strip()
+    if not user_name:
+        raise ValueError("Authenticated user account is missing a valid user_name.")
+
     table = get_target_table(use_test_table)
+    item_data = dict(item_data or {})
+    item_data['user'] = user_name
 
     country = (item_data.get('country_code') or '').strip().upper()
     state = (item_data.get('state') or '').strip().upper()
@@ -651,7 +619,6 @@ def save_map_item(item_id, item_data, use_test_table=True):
     postal_code = (item_data.get('postal_code') or '').strip()
     address_1 = item_data.get('address_1')
     address_2 = item_data.get('address_2')
-    user = item_data.get('user') or 'Unknown User'
 
     region = item_data.get('region') or get_region_from_country_code(country)
     item_data['region'] = region
@@ -676,32 +643,37 @@ def save_map_item(item_id, item_data, use_test_table=True):
     except Exception:
         pass
 
-    current_time = datetime.datetime.now()
+    now_utc = datetime.datetime.now(datetime.timezone.utc)
     if 'date_time' not in item_data or not item_data['date_time']:
-        item_data['date_time'] = current_time
+        item_data['date_time'] = now_utc
 
-    if item_id:
-        row = table.get_by_id(item_id)
-        if row:
-            row.update(**item_data)
-            generated_id = item_id
-        else:
-            generated_id = str(uuid.uuid4())
-            item_data['id'] = generated_id
-            row = table.add_row(**item_data)
-    else:
-        generated_id = str(uuid.uuid4())
+    existing_row = None
+    if item_id is not None and str(item_id).strip() != '':
+        try:
+            numeric_id = int(item_id)
+            existing_row = table.get(id=numeric_id)
+        except (ValueError, TypeError):
+            existing_row = None
+
+    if existing_row is not None:
+        generated_id = int(existing_row['id'])
         item_data['id'] = generated_id
-        row = table.add_row(**item_data)
+        existing_row.update(**item_data)
+    else:
+        generated_id = generate_coded_datetime_id(now_utc)
+        while table.get(id=generated_id) is not None:
+            generated_id += 1
+        item_data['id'] = generated_id
+        table.add_row(**item_data)
 
     if lat is not None and lon is not None:
         try:
             lat_f, lon_f = float(lat), float(lon)
-            update_summary_tier(app_tables.map_region_summary, {'region': region}, lat_f, lon_f, user, table, region=region)
-            update_summary_tier(app_tables.map_country_summary, {'country_code': country}, lat_f, lon_f, user, table, country_code=country)
-            update_summary_tier(app_tables.map_state_summary, {'country_code': country, 'state': state}, lat_f, lon_f, user, table, country_code=country, state=state)
-            update_summary_tier(app_tables.map_city_summary, {'country_code': country, 'state': state, 'city': city}, lat_f, lon_f, user, table, country_code=country, state=state, city=city)
-            update_summary_tier(app_tables.map_postal_summary, {'country_code': country, 'postal_code': postal_code}, lat_f, lon_f, user, table, country_code=country, postal_code=postal_code)
+            update_summary_tier(app_tables.map_region_summary, {'region': region}, lat_f, lon_f, user_name, table, region=region)
+            update_summary_tier(app_tables.map_country_summary, {'country_code': country}, lat_f, lon_f, user_name, table, country_code=country)
+            update_summary_tier(app_tables.map_state_summary, {'country_code': country, 'state': state}, lat_f, lon_f, user_name, table, country_code=country, state=state)
+            update_summary_tier(app_tables.map_city_summary, {'country_code': country, 'state': state, 'city': city}, lat_f, lon_f, user_name, table, country_code=country, state=state, city=city)
+            update_summary_tier(app_tables.map_postal_summary, {'country_code': country, 'postal_code': postal_code}, lat_f, lon_f, user_name, table, country_code=country, postal_code=postal_code)
         except Exception:
             pass
 
@@ -709,7 +681,7 @@ def save_map_item(item_id, item_data, use_test_table=True):
     existing_lookup = lookup_table.get(id=generated_id)
     lookup_data = {
         'id': generated_id,
-        'user': user,
+        'user': user_name,
         'region': region,
         'country_code': country,
         'state': state,
@@ -803,7 +775,7 @@ def get_country_list():
                 sorted_region_countries = sorted(grouped_countries[region], key=lambda x: x[0])
                 for name, code in sorted_region_countries:
                     country_list.append((f"[{region}] {name}", code))
-    except Exception as e:
+    except Exception:
         pass
     return country_list
 
@@ -819,14 +791,17 @@ def get_states_for_country(country_code):
             sorted_states = sorted([(s.name, s.iso_code) for s in states], key=lambda x: x[0])
             for state_name, state_code in sorted_states:
                 state_list.append((state_name, state_code))
-    except Exception as e:
+    except Exception:
         pass
     return state_list
 
 
 @anvil.server.callable
 def get_cities_for_state(country_code, state_code):
-    city_list = [("<Select City>", None)]
+    city_list = [
+        ("<Select City>", None),
+        ("If you can't find your city on this list, you can enter it manually at the end of the list.", None),
+    ]
     if not country_code or not state_code:
         return city_list
     seen_cities = set()
@@ -837,11 +812,10 @@ def get_cities_for_state(country_code, state_code):
                 if c_name not in seen_cities:
                     seen_cities.add(c_name)
                     city_list.append((c_name, c_name))
-    except Exception as e:
+    except Exception:
         pass
     city_list.append(("Enter City Manually", "MANUAL_ENTRY"))
     return city_list
-
 
 @anvil.server.callable
 def geocode_address(address_query):
@@ -860,7 +834,7 @@ def geocode_address(address_query):
                     'longitude': location.longitude,
                     'formatted_address': location.address
                 }
-    except Exception as e:
+    except Exception:
         pass
     return {'latitude': None, 'longitude': None, 'formatted_address': ''}
 
@@ -915,4 +889,3 @@ def get_users_for_cluster(cluster_keys, page=1, page_size=100, use_test_table=Fa
         'total_pages': total_pages,
         'restricted': False
     }
-

@@ -10,67 +10,95 @@ from ....AuthVisibilityService import auth_visibility
 class MapEntry(MapEntryTemplate):
 
   def __init__(self, **properties):
-    self.init_components(**properties)
-    self.last_saved_record_id = None
-    self._refresh_lock = False
-    self._loading_map = False
-    self._initial_centered = False
-    self._last_viewport_sig = None
-    self._debounce_timeout_id = None
-    self._debounce_callback = self._run_debounced_refresh
-    self._js_gmap = None
-    self._radial_prompt_shown = False
-    self._last_radial_zoom = None
-    self._radius_selected = False
-    self._user_postal_marker_data = None
+      self.init_components(**properties)
+      self.last_saved_record_id = None
+      self._refresh_lock = False
+      self._loading_map = False
+      self._initial_centered = False
+      self._last_viewport_sig = None
+      self._debounce_timeout_id = None
+      self._debounce_callback = self._run_debounced_refresh
+      self._js_gmap = None
+      self._radial_prompt_shown = False
+      self._last_radial_zoom = None
+      self._radius_selected = False
+      self._user_postal_marker_data = None
 
-    self.use_test_table = True
+      self.use_test_table = True
 
-    if hasattr(self, "Map_my_location") and self.Map_my_location is not None:
-      auth_visibility.bind(self.Map_my_location, "map_my_location")
-      self.Map_my_location.set_event_handler(
-          "click", self.map_my_location_click
-      )
-
-    auth_visibility.refresh_auth_state()
-
-    self.Info_Link.role = "input-border"
-
-    self.Threshold_Label.visible = False
-    self.Threshold_Dropdown.visible = False
-
-    if hasattr(self, "Fullscreen_button"):
-      self.Fullscreen_button.set_event_handler(
-          "click", self.full_screen_map_button_click
-      )
-
-    try:
-      self.Country_Code_Value.items = anvil.server.call("get_country_list")
-    except Exception as e:
-      print(f"get_country_list error: {e}")
-
-    if hasattr(self, "Cluster_Type_Dropdown"):
-      self.Cluster_Type_Dropdown.selected_value = "Country"
-
-    self.refresh_map_display(cluster_type="Country", force=True)
-
-    for evt in ("bounds_changed", "zoom_changed", "dragend", "idle"):
-      try:
-        self.map_1.set_event_handler(
-            evt, lambda e=evt, **kw: self._on_map_viewport_change(evt_name=e, **kw)
+      if hasattr(self, "User_Name_Value") and self.User_Name_Value is not None:
+        self.User_Name_Value.set_event_handler(
+            "focus", self._populate_logged_in_user_name
         )
-      except Exception as ex:
-        print(f"Failed attaching {evt}: {ex}")
+        try:
+          dom_node = anvil.js.get_dom_node(self.User_Name_Value)
+          dom_node.addEventListener(
+              "click", lambda e: self._populate_logged_in_user_name()
+          )
+        except Exception:
+          pass
 
-    self.repeating_panel_1.items = [
-        {"range": "1 – 999 records", "role": "swatch-8"},
-        {"range": "1,000 – 9,999 records", "role": "swatch-10"},
-        {"range": "10,000 – 99,999 records", "role": "swatch-12"},
-        {"range": "100,000 – 249,999 records", "role": "swatch-16"},
-        {"range": "250,000 – 999,999 records", "role": "swatch-18"},
-        {"range": "1,000,000+ records", "role": "swatch-20"},
-    ]
+      if hasattr(self, "User_Name_Value") and self.User_Name_Value is not None:
+            self.User_Name_Value.set_event_handler(
+                "focus", self._populate_logged_in_user_name
+            )
 
+      if hasattr(self, "Map_my_location") and self.Map_my_location is not None:
+        auth_visibility.bind(self.Map_my_location, "map_my_location")
+        self.Map_my_location.set_event_handler(
+            "click", self.map_my_location_click
+        )
+
+      auth_visibility.refresh_auth_state()
+
+      self.Info_Link.role = "input-border"
+
+      self.Threshold_Label.visible = False
+      self.Threshold_Dropdown.visible = False
+
+      if hasattr(self, "Fullscreen_button"):
+        self.Fullscreen_button.set_event_handler(
+            "click", self.full_screen_map_button_click
+        )
+
+      try:
+        self.Country_Code_Value.items = anvil.server.call("get_country_list")
+      except Exception as e:
+        print(f"get_country_list error: {e}")
+
+      if hasattr(self, "Cluster_Type_Dropdown"):
+        self.Cluster_Type_Dropdown.selected_value = "Country"
+
+      self.refresh_map_display(cluster_type="Country", force=True)
+
+      for evt in ("bounds_changed", "zoom_changed", "dragend", "idle"):
+        try:
+          self.map_1.set_event_handler(
+              evt, lambda e=evt, **kw: self._on_map_viewport_change(evt_name=e, **kw)
+          )
+        except Exception as ex:
+          print(f"Failed attaching {evt}: {ex}")
+
+      self.repeating_panel_1.items = [
+          {"range": "1 – 999 records", "role": "swatch-8"},
+          {"range": "1,000 – 9,999 records", "role": "swatch-10"},
+          {"range": "10,000 – 99,999 records", "role": "swatch-12"},
+          {"range": "100,000 – 249,999 records", "role": "swatch-16"},
+          {"range": "250,000 – 999,999 records", "role": "swatch-18"},
+          {"range": "1,000,000+ records", "role": "swatch-20"},
+      ]
+
+  def _populate_logged_in_user_name(self, **event_args):
+      try:
+        user_name = anvil.server.call("get_authenticated_user_name")
+        if user_name:
+          self.User_Name_Value.text = user_name
+        else:
+          alert("You must be logged in to enter a Map Item.")
+      except Exception as e:
+        print(f"Error fetching authenticated user_name: {e}")
+
+        
   @staticmethod
   def _is_radial_mode(cluster_type):
     return bool(
@@ -408,51 +436,53 @@ class MapEntry(MapEntryTemplate):
     self.Address2_Value.text = ""
     self.Latitude_Value.text = ""
     self.Longitude_Value.text = ""
-    self.Formatted_Address_Value.text = ""
+    self.Formatted_Address_Value.text = "def save_button_click(self, **event_args):
+      try:
+        logged_in_email = anvil.server.call("get_authenticated_user")
+        if not logged_in_email:
+          alert("Please log in before saving a map item.")
+          return
 
-  def save_button_click(self, **event_args):
-    try:
-      selected_city = self.City_Value.selected_value
-      final_city = (
-          self.Custom_City_TextBox.text
-          if selected_city == "MANUAL_ENTRY"
-          else selected_city
-      )
+        selected_city = self.City_Value.selected_value
+        final_city = (
+            self.Custom_City_TextBox.text
+            if selected_city == "MANUAL_ENTRY"
+            else selected_city
+        )
 
-      record_data = {
-          "user": self.User_Name_Value.text,
-          "country_code": self.Country_Code_Value.selected_value,
-          "state": self.State_Province_Region_Value.selected_value,
-          "city": final_city,
-          "postal_code": self.Postal_Code_Value.text,
-          "address_1": self.Address1_Value.text,
-          "address_2": self.Address2_Value.text,
-          "latitude": (
-              float(self.Latitude_Value.text)
-              if self.Latitude_Value.text
-              else None
-          ),
-          "longitude": (
-              float(self.Longitude_Value.text)
-              if self.Longitude_Value.text
-              else None
-          ),
-          "formatted_address": self.Formatted_Address_Value.text,
-      }
+        record_data = {
+            "country_code": self.Country_Code_Value.selected_value,
+            "state": self.State_Province_Region_Value.selected_value,
+            "city": final_city,
+            "postal_code": self.Postal_Code_Value.text,
+            "address_1": self.Address1_Value.text,
+            "address_2": self.Address2_Value.text,
+            "latitude": (
+                float(self.Latitude_Value.text)
+                if self.Latitude_Value.text
+                else None
+            ),
+            "longitude": (
+                float(self.Longitude_Value.text)
+                if self.Longitude_Value.text
+                else None
+            ),
+            "formatted_address": self.Formatted_Address_Value.text,
+        }
 
-      saved_id = anvil.server.call(
-          "save_map_item",
-          None,
-          record_data,
-          use_test_table=self.use_test_table,
-      )
-      if saved_id:
-        table_label = "MapItems_Test" if self.use_test_table else "MapItems"
-        alert(f"Record saved successfully to {table_label}!")
-        self.refresh_map_display(active_record_id=saved_id, force=True)
-    except Exception as e:
-      alert(f"Error saving record: {e}")
-
+        saved_id = anvil.server.call(
+            "save_map_item",
+            None,
+            record_data,
+            use_test_table=self.use_test_table,
+        )
+        if saved_id:
+          table_label = "MapItems_Test" if self.use_test_table else "MapItems"
+          alert(f"Record saved successfully to {table_label} (ID: {saved_id})!")
+          self.refresh_map_display(active_record_id=saved_id, force=True)
+      except Exception as e:
+        alert(f"Error saving record: {e}")
+        
   def search_button_click(self, **event_args):
     try:
       address_query = {

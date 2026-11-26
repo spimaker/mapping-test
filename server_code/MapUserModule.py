@@ -252,6 +252,22 @@ def get_authenticated_user():
 
   return clean_email
 
+@anvil.server.callable
+def get_authenticated_user_name():
+  """Returns the logged-in user's user_name from Users table, or None."""
+  user_row = get_authenticated_user_row()
+  if user_row is None:
+    return None
+  user_name = (user_row["user_name"] or "").strip()
+  return user_name or None
+
+def get_authenticated_user_row():
+  """Returns the active app_tables.users row for the logged-in session, or None."""
+  email = get_authenticated_user()
+  if not email:
+    return None
+  return _find_user_by_email(email)
+
 
 @anvil.server.callable
 def clear_authenticated_user():
