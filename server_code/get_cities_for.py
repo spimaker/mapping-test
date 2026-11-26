@@ -697,58 +697,62 @@ def save_map_item(item_id, item_data, use_test_table=True):
     return generated_id
 
 
-def update_summary_tier(summary_table, query_dict, lat, lon, user, raw_table, **raw_filters):
-    summary_row = summary_table.get(**query_dict)
+def update_summary_tier(summary_table, query_dict, lat, lon):
+  if not query_dict or any(
+      v is None or str(v).strip() == "" for v in query_dict.values()
+  ):
+    return
 
-    bucket_rows = list(raw_table.search(**raw_filters))
-    if not bucket_rows:
-        if summary_row:
-            summary_row.delete()
-        return
+  coords = _sanitize_coords(lat, lon, state=query_dict.get("state", ""))
+  if not coords:
+    return
+  lat_f, lon_f = coords
 
-    lats = []
-    lons = []
-    users = set()
+  summary_row = summary_table.get(**query_dict)
+  if summary_row is None:
+    summary_table.add_row(
+        **query_dict,
+        center_lat=lat_f,
+        center_lon=lon_f,
+        min_lat=lat_f,
+        max_lat=lat_f,
+        min_lon=lon_f,
+        max_lon=lon_f,
+        user_count=1,
+    )
+    return
 
-    for r in bucket_rows:
-        r_lat = r.get('latitude')
-        r_lon = r.get('longitude')
-        r_user = r.get('user')
-        r_state = (r.get('state') or '').strip().upper()
+  cur_min_lat = summary_row["min_lat"]
+  cur_max_lat = summary_row["max_lat"]
+  cur_min_lon = summary_row["min_lon"]
+  cur_max_lon = summary_row["max_lon"]
+  cur_count = summary_row["user_count"]
 
-        coords = _sanitize_coords(r_lat, r_lon, state=r_state)
-        if not coords:
-            continue
+  if (
+      cur_min_lat is None
+      or cur_max_lat is None
+      or cur_min_lon is None
+      or cur_max_lon is None
+  ):
+    min_lat = max_lat = lat_f
+    min_lon = max_lon = lon_f
+  else:
+    min_lat = min(float(cur_min_lat), lat_f)
+    max_lat = max(float(cur_max_lat), lat_f)
+    min_lon = min(float(cur_min_lon), lon_f)
+    max_lon = max(float(cur_max_lon), lon_f)
 
-        rlat_f, rlon_f = coords
-        lats.append(rlat_f)
-        lons.append(rlon_f)
-        if r_user:
-            users.add(r_user)
+  new_count = (int(cur_count) + 1) if cur_count is not None else 1
 
-    if not lats or not lons:
-        if summary_row:
-            summary_row.delete()
-        return
-
-    min_lat, max_lat = min(lats), max(lats)
-    min_lon, max_lon = min(lons), max(lons)
-
-    metrics = {
-        'center_lat': (min_lat + max_lat) / 2.0,
-        'center_lon': (min_lon + max_lon) / 2.0,
-        'min_lat': min_lat,
-        'max_lat': max_lat,
-        'min_lon': min_lon,
-        'max_lon': max_lon,
-        'user_count': len(users)
-    }
-
-    if summary_row:
-        summary_row.update(**metrics)
-    else:
-        summary_table.add_row(**query_dict, **metrics)
-
+  summary_row.update(
+      center_lat=(min_lat + max_lat) / 2.0,
+      center_lon=(min_lon + max_lon) / 2.0,
+      min_lat=min_lat,
+      max_lat=max_lat,
+      min_lon=min_lon,
+      max_lon=max_lon,
+      user_count=new_count,
+  )
 
 @anvil.server.callable
 def get_country_list():

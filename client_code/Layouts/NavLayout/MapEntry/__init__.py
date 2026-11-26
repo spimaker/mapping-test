@@ -89,14 +89,29 @@ class MapEntry(MapEntryTemplate):
       ]
 
   def _populate_logged_in_user_name(self, **event_args):
+      if getattr(self, "_checking_user_auth", False):
+        return
+      now_ts = anvil.js.window.performance.now()
+      if (now_ts - getattr(self, "_last_auth_prompt_ts", 0.0)) < 1500.0:
+        return
+
+      self._checking_user_auth = True
       try:
         user_name = anvil.server.call("get_authenticated_user_name")
         if user_name:
           self.User_Name_Value.text = user_name
         else:
+          try:
+            anvil.js.get_dom_node(self.User_Name_Value).blur()
+          except Exception:
+            pass
+          self._last_auth_prompt_ts = anvil.js.window.performance.now()
           alert("You must be logged in to enter a Map Item.")
+          self._last_auth_prompt_ts = anvil.js.window.performance.now()
       except Exception as e:
         print(f"Error fetching authenticated user_name: {e}")
+      finally:
+        self._checking_user_auth = False
 
         
   @staticmethod
@@ -421,67 +436,22 @@ class MapEntry(MapEntryTemplate):
         break
 
   def clear_button_click(self, **event_args):
-    self.User_Name_Value.text = ""
-    self.Country_Code_Value.selected_value = None
-    self.State_Province_Region_Value.selected_value = None
-    self.City_Value.selected_value = None
-    self.City_Value.items = [("<Select City>", None)]
+      self.User_Name_Value.text = ""
+      self.Country_Code_Value.selected_value = None
+      self.State_Province_Region_Value.selected_value = None
+      self.City_Value.selected_value = None
+      self.City_Value.items = [("<Select City>", None)]
 
-    self.Custom_City_Label.visible = False
-    self.Custom_City_TextBox.visible = False
-    self.Custom_City_TextBox.text = ""
+      self.Custom_City_Label.visible = False
+      self.Custom_City_TextBox.visible = False
+      self.Custom_City_TextBox.text = ""
 
-    self.Postal_Code_Value.text = ""
-    self.Address1_Value.text = ""
-    self.Address2_Value.text = ""
-    self.Latitude_Value.text = ""
-    self.Longitude_Value.text = ""
-    self.Formatted_Address_Value.text = "def save_button_click(self, **event_args):
-      try:
-        logged_in_email = anvil.server.call("get_authenticated_user")
-        if not logged_in_email:
-          alert("Please log in before saving a map item.")
-          return
-
-        selected_city = self.City_Value.selected_value
-        final_city = (
-            self.Custom_City_TextBox.text
-            if selected_city == "MANUAL_ENTRY"
-            else selected_city
-        )
-
-        record_data = {
-            "country_code": self.Country_Code_Value.selected_value,
-            "state": self.State_Province_Region_Value.selected_value,
-            "city": final_city,
-            "postal_code": self.Postal_Code_Value.text,
-            "address_1": self.Address1_Value.text,
-            "address_2": self.Address2_Value.text,
-            "latitude": (
-                float(self.Latitude_Value.text)
-                if self.Latitude_Value.text
-                else None
-            ),
-            "longitude": (
-                float(self.Longitude_Value.text)
-                if self.Longitude_Value.text
-                else None
-            ),
-            "formatted_address": self.Formatted_Address_Value.text,
-        }
-
-        saved_id = anvil.server.call(
-            "save_map_item",
-            None,
-            record_data,
-            use_test_table=self.use_test_table,
-        )
-        if saved_id:
-          table_label = "MapItems_Test" if self.use_test_table else "MapItems"
-          alert(f"Record saved successfully to {table_label} (ID: {saved_id})!")
-          self.refresh_map_display(active_record_id=saved_id, force=True)
-      except Exception as e:
-        alert(f"Error saving record: {e}")
+      self.Postal_Code_Value.text = ""
+      self.Address1_Value.text = ""
+      self.Address2_Value.text = ""
+      self.Latitude_Value.text = ""
+      self.Longitude_Value.text = ""
+      self.Formatted_Address_Value.text = ""
         
   def search_button_click(self, **event_args):
     try:
@@ -1012,3 +982,50 @@ class MapEntry(MapEntryTemplate):
       self._refresh_current_cluster_mode(force=True)
     except Exception as e:
       alert(f"Could not locate your postal code: {e}")
+
+  def save_button_click(self, **event_args):
+      try:
+        logged_in_email = anvil.server.call("get_authenticated_user")
+        if not logged_in_email:
+          alert("Please log in before saving a map item.")
+          return
+
+        selected_city = self.City_Value.selected_value
+        final_city = (
+            self.Custom_City_TextBox.text
+            if selected_city == "MANUAL_ENTRY"
+            else selected_city
+        )
+
+        record_data = {
+            "country_code": self.Country_Code_Value.selected_value,
+            "state": self.State_Province_Region_Value.selected_value,
+            "city": final_city,
+            "postal_code": self.Postal_Code_Value.text,
+            "address_1": self.Address1_Value.text,
+            "address_2": self.Address2_Value.text,
+            "latitude": (
+                float(self.Latitude_Value.text)
+                if self.Latitude_Value.text
+                else None
+            ),
+            "longitude": (
+                float(self.Longitude_Value.text)
+                if self.Longitude_Value.text
+                else None
+            ),
+            "formatted_address": self.Formatted_Address_Value.text,
+        }
+
+        saved_id = anvil.server.call(
+            "save_map_item",
+            None,
+            record_data,
+            use_test_table=self.use_test_table,
+        )
+        if saved_id:
+          table_label = "MapItems_Test" if self.use_test_table else "MapItems"
+          alert(f"Record saved successfully to {table_label} (ID: {saved_id})!")
+          self.refresh_map_display(active_record_id=saved_id, force=True)
+      except Exception as e:
+        alert(f"Error saving record: {e}")
