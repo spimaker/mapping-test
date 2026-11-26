@@ -1,4 +1,4 @@
-from ._anvil_designer import Form1Template
+from ._anvil_designer import Login_confirmationTemplate
 from anvil import *
 import anvil.server
 import anvil.users
@@ -7,8 +7,7 @@ import anvil.tables.query as q
 from anvil.tables import app_tables
 
 
-class Form1(Form1Template):
-
+class Login_confirmation(Login_confirmationTemplate):
   def __init__(self, **properties):
     super().__init__(**properties)
 

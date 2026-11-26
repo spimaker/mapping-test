@@ -106,13 +106,18 @@ class MapEntry(MapEntryTemplate):
           except Exception:
             pass
           self._last_auth_prompt_ts = anvil.js.window.performance.now()
-          alert("You must be logged in to enter a Map Item.")
+          go_to_login = alert(
+              "You must be logged in to enter a Map Item.",
+              title="Login Required",
+              buttons=[("Log In / Register", True), ("Cancel", False)],
+          )
           self._last_auth_prompt_ts = anvil.js.window.performance.now()
+          if go_to_login:
+            anvil.open_form("Layouts.NavLayout.Login_register")
       except Exception as e:
         print(f"Error fetching authenticated user_name: {e}")
       finally:
         self._checking_user_auth = False
-
         
   @staticmethod
   def _is_radial_mode(cluster_type):

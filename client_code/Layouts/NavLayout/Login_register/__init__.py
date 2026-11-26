@@ -24,6 +24,32 @@ class Login_register(Login_registerTemplate):
     self.active_email = ""
     self.show_entry_screens()
 
+  def _set_code_value_error_outline(self, is_error=True):
+      try:
+        dom_node = anvil.js.get_dom_node(self.code_value)
+        target = dom_node.querySelector("input") or dom_node
+        if is_error:
+          target.style.border = "2px solid #d93025"
+          target.style.outline = "1px solid #d93025"
+          target.style.borderRadius = "4px"
+        else:
+          target.style.border = ""
+          target.style.outline = ""
+          target.style.borderRadius = ""
+      except Exception as e:
+        print(f"Could not update code_value outline: {e}")
+
+  def code_value_change(self, **event_args):
+    self._set_code_value_error_outline(False)
+
+  def verify_code_button_click(self, **event_args):
+    code_entered = (self.code_value.text or "").strip()
+    if not code_entered:
+      self._set_code_value_error_outline(True)
+      alert("Please enter your verification code.")
+      return
+    self._set_code_value_error_outline(False)
+
   def _sync_nav_auth_state(self, is_logged_in):
     """Updates NavLayout auth links immediately before navigating away."""
     nav = getattr(self, "layout", None)

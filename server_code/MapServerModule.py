@@ -893,3 +893,39 @@ def get_users_for_cluster(cluster_keys, page=1, page_size=100, use_test_table=Fa
         'total_pages': total_pages,
         'restricted': False
     }
+
+def _resolve_names_via_pycountry(
+    country_code=None, state=None, country_name=None, state_name=None
+):
+  resolved_country = str(country_name).strip() if country_name else ""
+  resolved_state = str(state_name).strip() if state_name else ""
+
+  code_clean = str(country_code).strip().upper() if country_code else ""
+  state_clean = str(state).strip().upper() if state else ""
+
+  # Never keep raw codes as display names
+  if resolved_country.upper() == code_clean:
+    resolved_country = ""
+  if resolved_state.upper() == state_clean:
+    resolved_state = ""
+
+  if not resolved_country and code_clean:
+    c_obj = None
+    if len(code_clean) == 2 and code_clean.isalpha():
+      c_obj = pycountry.countries.get(alpha_2=code_clean)
+    elif len(code_clean) == 3 and code_clean.isalpha():
+      c_obj = pycountry.countries.get(alpha_3=code_clean)
+    if c_obj and getattr(c_obj, "name", None):
+      resolved_country = c_obj.name
+
+  if not resolved_state and state_clean:
+    sub_code = (
+        state_clean
+        if "-" in state_clean
+        else (f"{code_clean}-{state_clean}" if code_clean else state_clean)
+    )
+    sub_obj = pycountry.subdivisions.get(code=sub_code)
+    if sub_obj and getattr(sub_obj, "name", None):
+      resolved_state = sub_obj.name
+
+  return (resolved_country or None), (resolved_state or None)

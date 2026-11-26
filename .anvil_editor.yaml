@@ -18,7 +18,7 @@ unique_ids:
     Layouts.NavLayout.Discussion: '179557397820537881061444.06023'
     Layouts.NavLayout.HaveDone: '1795496668276581164426733.9027'
     Layouts.NavLayout.Login_register: '1791768633706399545214908.6891'
-    Layouts.NavLayout.Login_register.Form1: '1795484222935130408414797.196'
+    Layouts.NavLayout.Login_register.Login_confirmation: '1795484222935130408414797.196'
     Layouts.NavLayout.Logout: '1795482785599436932427866.34937'
     Layouts.NavLayout.MapEntry: HKMNAWPZP2LL5SIPSZZBV33LZONCBW35
     Layouts.NavLayout.Meetups: '1795577969083712928899517.0417'
@@ -51,6 +51,6 @@ unique_ids:
     DataConversionModules.DataMapItem_Test_to_Test2: '1794680673504913001005631.432'
     DataConversionModules.DataSQLQueries: '1794516222234298481040779.1423'
     DataConversionModules.GetLocalData: '1794894753728138785204483.70148'
+    MapServerModule: '179142989567429559703201.918476'
     MapUserModule: '1795486516815986848065053.5177'
     ScorecardModule: '1793941776303722150824050.4746'
-    get_cities_for: '179142989567429559703201.918476'
