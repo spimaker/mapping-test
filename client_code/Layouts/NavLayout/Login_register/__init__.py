@@ -248,7 +248,7 @@ class Login_register(Login_registerTemplate):
       anvil.alert(f"An error occurred: {e}")
 
   @anvil.handle("submit_code_button", "click")
-    def submit_code_button_click(self, **event_args):
+  def submit_code_button_click(self, **event_args):
       """Handles verification of the 6-digit code."""
       code = (
           self.code_value.text.strip()
