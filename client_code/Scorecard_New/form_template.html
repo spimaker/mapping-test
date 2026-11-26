@@ -1,0 +1,35 @@
+<style>
+  .sc-grid {
+    display: grid;
+    grid-template-columns: 5fr repeat(5, 1fr) 2fr;
+    align-items: center;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .sc-cell {
+    min-width: 0;
+    padding: 4px 8px;
+    box-sizing: border-box;
+  }
+
+  .sc-area {
+    text-align: left;
+  }
+
+  .sc-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+</style>
+
+<div class="sc-grid">
+  <div class="sc-cell sc-area"><anvil-slot name="slot_area" placeholder="Area"></anvil-slot></div>
+  <div class="sc-cell sc-num"><anvil-slot name="slot_today" placeholder="Today"></anvil-slot></div>
+  <div class="sc-cell sc-num"><anvil-slot name="slot_week" placeholder="This Week"></anvil-slot></div>
+  <div class="sc-cell sc-num"><anvil-slot name="slot_month"></anvil-slot></div>
+  <div class="sc-cell sc-num"><anvil-slot name="slot_quarter"></anvil-slot></div>
+  <div class="sc-cell sc-num"><anvil-slot name="slot_year"></anvil-slot></div>
+  <div class="sc-cell sc-num"><anvil-slot name="slot_all_time"></anvil-slot></div>
+</div>
