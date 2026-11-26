@@ -1,12 +1,86 @@
-<anvil-form layout="Mapping_Test.Layouts.NavLayout">
-  <anvil-block slot="title">
-    <anvil-component type="Label" name="title_label" prop:role="h1" prop:text="TheNaturist Map Scorecard"></anvil-component>
-  </anvil-block>
-  <anvil-block slot="content">
-    <anvil-component type="ColumnPanel" name="about_card" prop:role="card">
-      <anvil-component type="RichText" name="about_rich_text" prop:format="markdown" prop:content="### About The Naturist Map Scorecard 
+<style>
+  [anvil-dom-node="sc-root"].sc-wrapper,
+  .sc-wrapper {
+    --sc-cols: minmax(0, 4fr) repeat(6, minmax(0, 0.5fr));
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    box-sizing: border-box !important;
+  }
 
-View how the Map is growing users day by day"></anvil-component>
-    </anvil-component>
-  </anvil-block>
-</anvil-form>
+  [anvil-dom-node="sc-root"] .sc-header-grid {
+    display: grid !important;
+    grid-template-columns: var(--sc-cols) !important;
+    align-items: center !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    font-weight: 700;
+    color: #111827;
+    border-bottom: 2px solid #9ca3af;
+  }
+
+  [anvil-dom-node="sc-root"] .sc-rows-stack {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    max-width: none !important;
+    box-sizing: border-box !important;
+  }
+
+  [anvil-dom-node="sc-root"] .sc-rows-stack > anvil-slot {
+    display: contents !important;
+  }
+
+  [anvil-dom-node="sc-root"] .sc-rows-stack > .anvil-component,
+  [anvil-dom-node="sc-root"] .sc-rows-stack > anvil-slot > .anvil-component {
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    box-sizing: border-box !important;
+  }
+
+  [anvil-dom-node="sc-root"] .sc-cell {
+    min-width: 0 !important;
+    padding: 6px 6px !important;
+    box-sizing: border-box !important;
+    overflow: hidden;
+  }
+
+  [anvil-dom-node="sc-root"] .sc-cell > anvil-slot {
+    display: contents !important;
+  }
+
+  [anvil-dom-node="sc-root"] .sc-cell > .anvil-component,
+  [anvil-dom-node="sc-root"] .sc-cell > anvil-slot > .anvil-component {
+    display: block !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+  }
+
+  [anvil-dom-node="sc-root"] .sc-area {
+    text-align: left;
+  }
+
+  [anvil-dom-node="sc-root"] .sc-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+</style>
+
+<div anvil-dom-node="sc-root" class="sc-wrapper">
+  <div class="sc-header-grid">
+    <div class="sc-cell sc-area"><anvil-slot name="hdr_area"></anvil-slot></div>
+    <div class="sc-cell sc-num"><anvil-slot name="hdr_today"></anvil-slot></div>
+    <div class="sc-cell sc-num"><anvil-slot name="hdr_week"></anvil-slot></div>
+    <div class="sc-cell sc-num"><anvil-slot name="hdr_month"></anvil-slot></div>
+    <div class="sc-cell sc-num"><anvil-slot name="hdr_quarter"></anvil-slot></div>
+    <div class="sc-cell sc-num"><anvil-slot name="hdr_year"></anvil-slot></div>
+    <div class="sc-cell sc-num"><anvil-slot name="hdr_all_time"></anvil-slot></div>
+  </div>
+
+  <div class="sc-rows-stack">
+    <anvil-slot name="rows_slot"></anvil-slot>
+  </div>
+</div>
