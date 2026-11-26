@@ -237,6 +237,7 @@ def verify_email_otp(email, code_entered=None, code=None):
       "message": "Successfully authenticated!",
   }
 
+
 @anvil.server.callable
 def get_authenticated_user():
   """Returns the authenticated user's normalized email if active, else None."""
@@ -252,6 +253,7 @@ def get_authenticated_user():
 
   return clean_email
 
+
 @anvil.server.callable
 def get_authenticated_user_name():
   """Returns the logged-in user's user_name from Users table, or None."""
@@ -261,12 +263,13 @@ def get_authenticated_user_name():
   user_name = (user_row["user_name"] or "").strip()
   return user_name or None
 
+
 def get_authenticated_user_row():
   """Returns the active app_tables.users row for the logged-in session, or None."""
   email = get_authenticated_user()
-  if not email:
-    return None
-  return _find_user_by_email(email)
+  if email:
+    return _find_user_by_email(email)
+  return anvil.users.get_user()
 
 
 @anvil.server.callable
@@ -279,13 +282,16 @@ def clear_authenticated_user():
     pass
   return {"status": "success", "is_logged_in": False}
 
+
 def _safe_get(row, col_name):
+  """Safely reads a column/attribute/key from an Anvil Row, dict, or object."""
   if row is None:
     return None
   try:
     return row[col_name]
   except Exception:
-    return None
+    pass
+  return getattr(row, col_name, None)
 
 
 def _get_table(name):
@@ -300,29 +306,35 @@ def _get_table(name):
   return None
 
 
-def _find_user_row(table, user):
-  """Finds a matching row by user link, username/user_name, or email."""
-  if table is None or user is None:
+def _find_row_by_user_name(table, user_name):
+  """Finds a row in MapItems_Test or Map_user_lookup matching user (text)."""
+  if table is None or not user_name:
     return None
+  target = str(user_name).strip()
+  target_lower = target.lower()
 
-  for kwargs in (
-      {"user": user},
-      {"username": _safe_get(user, "username")},
-      {"user_name": _safe_get(user, "user_name")},
-      {"user_name": _safe_get(user, "username")},
-      {"email": _safe_get(user, "email")},
-      {"user": _safe_get(user, "email")},
-      {"user": _safe_get(user, "username")},
-  ):
-    val = next(iter(kwargs.values()))
-    if not val:
-      continue
+  for col in ("user", "user_name", "username"):
     try:
-      row = table.get(**kwargs)
+      row = table.get(**{col: target})
       if row is not None:
         return row
     except Exception:
+      pass
+
+    try:
+      matched = next(
+          (
+              r
+              for r in table.search()
+              if str(_safe_get(r, col) or "").strip().lower() == target_lower
+          ),
+          None,
+      )
+      if matched is not None:
+        return matched
+    except Exception:
       continue
+
   return None
 
 
@@ -352,27 +364,44 @@ def _coords_from_postal_summary(postal_code):
 
 @anvil.server.callable
 def get_logged_in_user_postal_location(use_test_table=True):
-  user = anvil.users.get_user()
-  if not user:
+  """Finds user_name from users, locates postal_code in MapItems_Test or Map_user_lookup,
+  and resolves coordinates from Map_postal_summary (or MapItems_Test lat/lon)."""
+  user_row = get_authenticated_user_row()
+  if not user_row:
     return None
 
-  lat = _safe_get(user, "latitude") or _safe_get(user, "center_lat")
-  lon = _safe_get(user, "longitude") or _safe_get(user, "center_lon")
-  postal_code = _safe_get(user, "postal_code")
+  user_name = (
+      _safe_get(user_row, "user_name")
+      or _safe_get(user_row, "username")
+      or ""
+  ).strip()
+  if not user_name:
+    return None
 
-  table_name = "MapItems_Test" if use_test_table else "MapItems"
-  items_tbl = _get_table(table_name)
-  row = _find_user_row(items_tbl, user)
+  postal_code = None
+  lat = None
+  lon = None
 
-  if row is not None:
-    if lat is None:
-      lat = _safe_get(row, "latitude")
-    if lon is None:
-      lon = _safe_get(row, "longitude")
-    if not postal_code:
-      postal_code = _safe_get(row, "postal_code")
+  # 1. Check MapItems_Test (or MapItems) where user column matches user_name
+  items_tbl_name = "MapItems_Test" if use_test_table else "MapItems"
+  items_row = _find_row_by_user_name(_get_table(items_tbl_name), user_name)
+  if items_row is not None:
+    raw_postal = _safe_get(items_row, "postal_code")
+    if raw_postal:
+      postal_code = str(raw_postal).strip()
+    lat = _safe_get(items_row, "latitude")
+    lon = _safe_get(items_row, "longitude")
 
-  if (lat is None or lon is None) and postal_code:
+  # 2. Check Map_user_lookup where user column matches user_name
+  if not postal_code:
+    lookup_row = _find_row_by_user_name(_get_table("Map_user_lookup"), user_name)
+    if lookup_row is not None:
+      raw_postal = _safe_get(lookup_row, "postal_code")
+      if raw_postal:
+        postal_code = str(raw_postal).strip()
+
+  # 3. Resolve coordinates from Map_postal_summary using postal_code
+  if postal_code and (lat is None or lon is None):
     summary_lat, summary_lon = _coords_from_postal_summary(postal_code)
     if lat is None:
       lat = summary_lat
@@ -387,19 +416,18 @@ def get_logged_in_user_postal_location(use_test_table=True):
       "lon": float(lon),
       "postal_code": postal_code or "My Postal Code",
   }
-  
+
+
 @anvil.server.callable
 def is_email_registered(email):
   cleaned = (email or "").strip().lower()
   if not cleaned:
     return False
 
-  # Replace `users` with your actual users table name if different
   users_tbl = getattr(app_tables, "users", None)
   if users_tbl is None:
     return False
 
-  # Check exact match first, then case-insensitive fallback if needed
   row = users_tbl.get(email=cleaned)
   if row is not None:
     return True
