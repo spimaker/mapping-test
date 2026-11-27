@@ -1,5 +1,5 @@
 from ._anvil_designer import ScorecardRowTemplate
-from anvil import Label
+from anvil import Label, Link
 
 SLOT_COLUMNS = [
     ("area", "Area", "left", "slot_area"),
@@ -18,11 +18,21 @@ class ScorecardRow(ScorecardRowTemplate):
       self,
       values=None,
       row_type="sub",  # "header" | "parent" | "sub"
+      depth=0,
+      expanded=False,
+      on_toggle=None,
       **properties,
   ):
     self.init_components(**properties)
     self._labels = {}
-    self.set_row_data(values or {}, row_type=row_type)
+    self._values = values or {}
+    self._on_toggle = on_toggle
+    self.set_row_data(
+        self._values,
+        row_type=row_type,
+        depth=depth,
+        expanded=expanded,
+    )
 
   def _add_to_slot(self, component, slot_name):
     if hasattr(self, "slots") and slot_name in self.slots:
@@ -30,7 +40,12 @@ class ScorecardRow(ScorecardRowTemplate):
     else:
       self.add_component(component, slot=slot_name)
 
-  def set_row_data(self, values_by_key, row_type="sub"):
+  def _on_area_click(self, **event_args):
+    if self._values.get("has_children") and callable(self._on_toggle):
+      self._on_toggle(self._values)
+
+  def set_row_data(self, values_by_key, row_type="sub", depth=0, expanded=False):
+    self._values = values_by_key
     for lbl in self._labels.values():
       lbl.remove_from_parent()
     self._labels.clear()
@@ -46,19 +61,44 @@ class ScorecardRow(ScorecardRowTemplate):
         grid_el.classList.add("sc-sub")
 
     is_bold = row_type in ("header", "parent")
+    has_children = bool(values_by_key.get("has_children"))
+    indent = "  " * max(0, depth)
 
     for key, default_label, align, slot_name in SLOT_COLUMNS:
-      text = (
-          default_label
-          if row_type == "header"
-          else str(values_by_key.get(key, ""))
-      )
-      lbl = Label(
-          text=text,
-          align=align,
-          bold=is_bold,
-          spacing_above="none",
-          spacing_below="none",
-      )
-      self._add_to_slot(lbl, slot_name)
-      self._labels[key] = lbl
+      if row_type == "header":
+        text = default_label
+        comp = Label(
+            text=text,
+            align=align,
+            bold=is_bold,
+            spacing_above="none",
+            spacing_below="none",
+        )
+      elif key == "area":
+        raw_area = str(values_by_key.get(key, ""))
+        if has_children:
+          caret = "▾ " if expanded else "▸ "
+          text = f"{indent}{caret}{raw_area}"
+          comp = Link(text=text, align=align, bold=is_bold)
+          comp.set_event_handler("click", self._on_area_click)
+        else:
+          text = f"{indent}{raw_area}"
+          comp = Label(
+              text=text,
+              align=align,
+              bold=is_bold,
+              spacing_above="none",
+              spacing_below="none",
+          )
+      else:
+        text = str(values_by_key.get(key, ""))
+        comp = Label(
+            text=text,
+            align=align,
+            bold=is_bold,
+            spacing_above="none",
+            spacing_below="none",
+        )
+
+      self._add_to_slot(comp, slot_name)
+      self._labels[key] = comp

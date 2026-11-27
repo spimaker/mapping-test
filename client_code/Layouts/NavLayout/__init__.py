@@ -83,7 +83,18 @@ class NavLayout(NavLayoutTemplate):
     """This method is called when the link is clicked"""
     from .Scorecard import Scorecard
 
+    self.set_page_title("The Naturist Scorecard")
     self.show_in_content(Scorecard())
+
+  def set_page_title(self, text):
+    if hasattr(self, "slots") and "title" in self.slots:
+      title_slot = self.slots["title"]
+      for comp in title_slot.get_components():
+        if hasattr(comp, "text"):
+          comp.text = text
+          return
+      title_slot.clear()
+      title_slot.add_component(Label(text=text, role="h1"))
 
   @handle("view_map_link", "click")
   def map_link_click(self, **event_args):

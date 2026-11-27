@@ -1,5 +1,6 @@
 from ._anvil_designer import ScorecardTemplate
 from anvil import Label
+import anvil.server
 from .ScorecardRow import ScorecardRow
 
 HEADER_COLUMNS = [
@@ -12,49 +13,17 @@ HEADER_COLUMNS = [
     ("All Time", "right", "hdr_all_time"),
 ]
 
-SAMPLE_GROUPS = [
-    {
-        "parent": {
-            "area": "Operations",
-            "today": "4",
-            "week": "19",
-            "month": "82",
-            "quarter": "240",
-            "year": "1,000,910",
-            "all_time": "3,420,999",
-        },
-        "children": [
-            {
-                "area": "Intake & Triage",
-                "today": "2",
-                "week": "9",
-                "month": "38",
-                "quarter": "112",
-                "year": "420",
-                "all_time": "1,580",
-            },
-            {
-                "area": "Follow-Ups & Reviews",
-                "today": "2",
-                "week": "10",
-                "month": "44",
-                "quarter": "128",
-                "year": "490",
-                "all_time": "1,840",
-            },
-        ],
-    },
-]
-
 
 class Scorecard(ScorecardTemplate):
 
-  def __init__(self, groups=None, **properties):
+  def __init__(self, **properties):
     self.init_components(**properties)
     self._header_labels = []
     self._rows = []
+    self._expanded_paths = set()
+    self._children_cache = {}
     self._build_headers()
-    self.render_scorecard(SAMPLE_GROUPS if groups is None else groups)
+    self.load_scorecard()
 
   def _add_to_target(self, component, slot_name):
     if hasattr(self, "slots") and slot_name in self.slots:
@@ -78,26 +47,73 @@ class Scorecard(ScorecardTemplate):
       self._add_to_target(lbl, slot_name)
       self._header_labels.append(lbl)
 
+  def _path_key(self, path):
+    return "|".join(path or [])
+
+  def load_scorecard(self, force_refresh=False):
+    self._expanded_paths.clear()
+    self._children_cache.clear()
+    regions = (
+        anvil.server.call(
+            "get_scorecard_children",
+            level="region",
+            path=None,
+            force_refresh=force_refresh,
+        )
+        or []
+    )
+    self._children_cache[""] = regions
+    self.render_hierarchy()
+
+  def _toggle_node(self, node_data):
+    next_level = node_data.get("level")
+    node_path = node_data.get("path") or []
+    if not next_level:
+      return
+
+    key = self._path_key(node_path)
+    if key in self._expanded_paths:
+      self._expanded_paths.remove(key)
+    else:
+      self._expanded_paths.add(key)
+      if key not in self._children_cache:
+        self._children_cache[key] = (
+            anvil.server.call(
+                "get_scorecard_children",
+                level=next_level,
+                path=node_path,
+            )
+            or []
+        )
+
+    self.render_hierarchy()
+
   def clear_rows(self):
     for row in self._rows:
       row.remove_from_parent()
     self._rows.clear()
 
-  def render_scorecard(self, groups):
-    self.clear_rows()
+  def _append_level(self, nodes, depth):
+    for node in nodes:
+      node_path = node.get("path") or []
+      key = self._path_key(node_path)
+      is_expanded = key in self._expanded_paths
+      row_type = "parent" if depth == 0 else "sub"
 
-    for group in groups:
-      parent_row = ScorecardRow(
-          values=group.get("parent", {}),
-          row_type="parent",
+      row_comp = ScorecardRow(
+          values=node,
+          row_type=row_type,
+          depth=depth,
+          expanded=is_expanded,
+          on_toggle=self._toggle_node,
       )
-      self._add_to_target(parent_row, "rows_slot")
-      self._rows.append(parent_row)
+      self._add_to_target(row_comp, "rows_slot")
+      self._rows.append(row_comp)
 
-      for child in group.get("children", []):
-        child_row = ScorecardRow(
-            values=child,
-            row_type="sub",
-        )
-        self._add_to_target(child_row, "rows_slot")
-        self._rows.append(child_row)
+      if is_expanded and node.get("has_children"):
+        child_nodes = self._children_cache.get(key, [])
+        self._append_level(child_nodes, depth + 1)
+
+  def render_hierarchy(self):
+    self.clear_rows()
+    self._append_level(self._children_cache.get("", []), depth=0)
