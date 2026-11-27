@@ -311,10 +311,4 @@ def get_scorecard_children(level="region", path=None, force_refresh=False):
 
     rows.sort(key=lambda item: item["area"].lower())
     return rows
-```
-
-### Final Steps in Anvil After Pasting
-1. **Resolve Schema Warning:** Go to Data Tables → `scorecard_status` and click **Resolve differences...** in the yellow banner.
-2. **Publish Your Latest Code:** Click **Publish** in the top-right corner and update your Published version (Anvil Scheduled Tasks only execute on Published/enabled environments, not in the editor).
-3. **Check Environment Settings:** Under **Publish → Environments** (expand *Advanced Settings*), confirm **Run scheduled tasks** is checked on the environment connected to **Default Database**.
   
