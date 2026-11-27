@@ -20,7 +20,7 @@ def _format_code_with_name(code_val, name_val, fallback):
     code = _clean_str(code_val)
     name = _clean_str(name_val)
     if code and name and name.lower() != code.lower():
-        return f"{} ({})"
+        return f"{code} ({name})"
     if code:
         return code
     if name:
@@ -170,21 +170,21 @@ def rebuild_scorecard_rollups_task(lock_acquired=False):
                 ("country", region, country_code, country_label, (region, country_code)),
                 (
                     "state",
-                    f"{}|{}",
+                    f"{region}|{country_code}",
                     state_code,
                     state_label,
                     (region, country_code, state_code),
                 ),
                 (
                     "city",
-                    f"{}|{}|{}",
+                    f"{region}|{country_code}|{state_code}",
                     city,
                     city,
                     (region, country_code, state_code, city),
                 ),
                 (
                     "postal",
-                    f"{}|{}|{}|{}",
+                    f"{region}|{country_code}|{state_code}|{city}",
                     postal,
                     postal,
                     (region, country_code, state_code, city, postal),
