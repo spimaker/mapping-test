@@ -202,7 +202,7 @@ scheduled_tasks:
 - job_id: MPUQCLOZ
   task_name: rebuild_scorecard_rollups_task
   time_spec:
-    at: {minute: 6}
+    at: {minute: 30}
     every: hour
     n: 1
 services:
