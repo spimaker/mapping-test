@@ -198,6 +198,13 @@ runtime_options:
   server_persist: true
   server_spec: {base: python310-minimal}
   version: 3
+scheduled_tasks:
+- job_id: MPUQCLOZ
+  task_name: rebuild_scorecard_rollups_task
+  time_spec:
+    at: {minute: 6}
+    every: hour
+    n: 1
 services:
 - client_config: {enable_split: true, enable_v2: true}
   server_config: {}

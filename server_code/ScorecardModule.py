@@ -1,10 +1,12 @@
 import time
 from datetime import datetime, timedelta, timezone
 import anvil.server
+import anvil.tables
 from anvil.tables import app_tables
 
-_BRANCH_CACHE_TTL = 120
-_BRANCH_CACHE = {}
+METRIC_KEYS = ("today", "week", "month", "quarter", "year", "all_time")
+STALE_AFTER_MINUTES = 60
+LOCK_LEASE_MINUTES = 20
 
 
 def _clean_str(val, fallback=""):
@@ -39,10 +41,8 @@ def _period_bounds(now_dt):
   )
 
   month_start = datetime(d.year, d.month, 1, tzinfo=timezone.utc)
-
   q_start_month = ((d.month - 1) // 3) * 3 + 1
   quarter_start = datetime(d.year, q_start_month, 1, tzinfo=timezone.utc)
-
   year_start = datetime(d.year, 1, 1, tzinfo=timezone.utc)
 
   return {
@@ -62,211 +62,225 @@ def _normalize_dt(dt_val):
   return dt_val.replace(tzinfo=timezone.utc)
 
 
-def _empty_counts():
-  return {
-      "today": 0,
-      "week": 0,
-      "month": 0,
-      "quarter": 0,
-      "year": 0,
-      "all_time": 0,
-  }
+@anvil.tables.in_transaction
+def _try_acquire_rollup_lock(force=False):
+  now_dt = datetime.now(timezone.utc)
+  status_row = app_tables.scorecard_status.get(key="global_rollup")
 
-
-def _has_any_activity(counts):
-  return any(v > 0 for v in counts.values())
-
-
-def _format_row(display_label, key_value, counts, next_level, path, has_children):
-  return {
-      "area": display_label,
-      "key": key_value,
-      "level": next_level,
-      "path": path,
-      "has_children": has_children,
-      "today": f"{counts['today']:,}",
-      "week": f"{counts['week']:,}",
-      "month": f"{counts['month']:,}",
-      "quarter": f"{counts['quarter']:,}",
-      "year": f"{counts['year']:,}",
-      "all_time": f"{counts['all_time']:,}",
-  }
-
-
-def _aggregate_rows(rows_iter, key_and_label_fn, path_fn, next_level, has_children, bounds, skip_all_zero):
-  # buckets[calc_key] = {"label": display_label, "counts": {...}}
-  buckets = {}
-
-  for row in rows_iter:
-    calc_key, display_label = key_and_label_fn(row)
-    item = buckets.get(calc_key)
-    if item is None:
-      item = {"label": display_label, "counts": _empty_counts()}
-      buckets[calc_key] = item
-
-    counts = item["counts"]
-    counts["all_time"] += 1
-
-    dt_norm = _normalize_dt(row["date_time"])
-    if dt_norm is not None:
-      if dt_norm >= bounds["year"]:
-        counts["year"] += 1
-      if dt_norm >= bounds["quarter"]:
-        counts["quarter"] += 1
-      if dt_norm >= bounds["month"]:
-        counts["month"] += 1
-      if dt_norm >= bounds["week"]:
-        counts["week"] += 1
-      if dt_norm >= bounds["today"]:
-        counts["today"] += 1
-
-  result = []
-  for calc_key, item in buckets.items():
-    counts = item["counts"]
-    if skip_all_zero and not _has_any_activity(counts):
-      continue
-    result.append(
-        _format_row(
-            display_label=item["label"],
-            key_value=calc_key,
-            counts=counts,
-            next_level=next_level,
-            path=path_fn(calc_key),
-            has_children=has_children,
-        )
+  if status_row is None:
+    app_tables.scorecard_status.add_row(
+        key="global_rollup",
+        is_running=True,
+        expires_at=now_dt + timedelta(minutes=LOCK_LEASE_MINUTES),
+        last_completed_at=None,
+        time_run_seconds=None,
     )
+    return True
 
-  result.sort(key=lambda r: r["area"].lower())
-  return result
+  expires_at = _normalize_dt(status_row["expires_at"])
+  last_done = _normalize_dt(status_row["last_completed_at"])
 
+  if status_row["is_running"] and expires_at is not None and expires_at > now_dt:
+    return False
 
-def _region_key_label(row):
-  val = _clean_str(row["region"], "Unspecified Region")
-  return val, val
+  if not force and last_done is not None:
+    same_utc_day = last_done.date() == now_dt.date()
+    age = now_dt - last_done
+    if same_utc_day and age < timedelta(minutes=STALE_AFTER_MINUTES):
+      return False
 
-
-def _country_key_label(row):
-  code = _clean_str(row["country_code"], "UNSPEC")
-  label = _format_code_with_name(row["country_code"], row["country_name"], "Unspecified Country")
-  return code, label
-
-
-def _state_key_label(row):
-  st = _clean_str(row["state"], "Unspecified State")
-  label = _format_code_with_name(row["state"], row["state_name"], "Unspecified State")
-  return st, label
-
-
-def _city_key_label(row):
-  val = _clean_str(row["city"], "Unspecified City")
-  return val, val
+  status_row.update(
+      is_running=True,
+      expires_at=now_dt + timedelta(minutes=LOCK_LEASE_MINUTES),
+  )
+  return True
 
 
-def _postal_key_label(row):
-  val = _clean_str(row["postal_code"], "Unspecified Postal Code")
-  return val, val
+@anvil.tables.in_transaction
+def _release_rollup_lock(completed_at=None, time_run_seconds=None):
+  status_row = app_tables.scorecard_status.get(key="global_rollup")
+  if status_row is not None:
+    updates = {
+        "is_running": False,
+        "expires_at": None,
+    }
+    if time_run_seconds is not None:
+      updates["time_run_seconds"] = time_run_seconds
+    if completed_at is not None:
+      updates["last_completed_at"] = completed_at
+    status_row.update(**updates)
 
 
-def _compute_branch(level, path_tuple, bounds):
-  skip_all_zero = level != "region"
+def trigger_rollup_if_needed(force=False):
+  if _try_acquire_rollup_lock(force=force):
+    anvil.server.launch_background_task("rebuild_scorecard_rollups_task")
+    return True
+  return False
 
-  if level == "region":
-    return _aggregate_rows(
-        app_tables.mapitems_test.search(),
-        key_and_label_fn=_region_key_label,
-        path_fn=lambda k: [k],
-        next_level="country",
-        has_children=True,
-        bounds=bounds,
-        skip_all_zero=skip_all_zero,
+
+@anvil.server.background_task
+def rebuild_scorecard_rollups_task():
+  start_mono = time.monotonic()
+  now_dt = datetime.now(timezone.utc)
+  try:
+    bounds = _period_bounds(now_dt)
+    rollup_map = {}
+
+    for row in app_tables.mapitems_test.search():
+      region = _clean_str(row["region"], "Unspecified Region")
+      country_code = _clean_str(row["country_code"], "UNSPEC")
+      country_label = _format_code_with_name(
+          row["country_code"], row["country_name"], "Unspecified Country"
+      )
+      state_code = _clean_str(row["state"], "Unspecified State")
+      state_label = _format_code_with_name(
+          row["state"], row["state_name"], "Unspecified State"
+      )
+      city = _clean_str(row["city"], "Unspecified City")
+      postal = _clean_str(row["postal_code"], "Unspecified Postal Code")
+
+      dt_norm = _normalize_dt(row["date_time"])
+      inc = {
+          "today": 1 if (dt_norm is not None and dt_norm >= bounds["today"]) else 0,
+          "week": 1 if (dt_norm is not None and dt_norm >= bounds["week"]) else 0,
+          "month": 1 if (dt_norm is not None and dt_norm >= bounds["month"]) else 0,
+          "quarter": 1 if (dt_norm is not None and dt_norm >= bounds["quarter"]) else 0,
+          "year": 1 if (dt_norm is not None and dt_norm >= bounds["year"]) else 0,
+          "all_time": 1,
+      }
+
+      levels = (
+          ("region", "", region, region, (region,)),
+          ("country", region, country_code, country_label, (region, country_code)),
+          (
+              "state",
+              f"{region}|{country_code}",
+              state_code,
+              state_label,
+              (region, country_code, state_code),
+          ),
+          (
+              "city",
+              f"{region}|{country_code}|{state_code}",
+              city,
+              city,
+              (region, country_code, state_code, city),
+          ),
+          (
+              "postal",
+              f"{region}|{country_code}|{state_code}|{city}",
+              postal,
+              postal,
+              (region, country_code, state_code, city, postal),
+          ),
+      )
+
+      for lvl, parent_key, calc_key, disp_label, path_tuple in levels:
+        path_key = "|".join(path_tuple)
+        entry = rollup_map.get(path_key)
+        if entry is None:
+          entry = {
+              "level": lvl,
+              "parent_key": parent_key,
+              "path_key": path_key,
+              "calc_key": calc_key,
+              "label": disp_label,
+              "today": 0,
+              "week": 0,
+              "month": 0,
+              "quarter": 0,
+              "year": 0,
+              "all_time": 0,
+          }
+          rollup_map[path_key] = entry
+        for k in METRIC_KEYS:
+          entry[k] += inc[k]
+
+    existing = {r["path_key"]: r for r in app_tables.scorecard_rollups.search()}
+    for path_key, entry in rollup_map.items():
+      payload = {
+          "level": entry["level"],
+          "parent_key": entry["parent_key"],
+          "path_key": path_key,
+          "calc_key": entry["calc_key"],
+          "label": entry["label"],
+          "today": entry["today"],
+          "week": entry["week"],
+          "month": entry["month"],
+          "quarter": entry["quarter"],
+          "year": entry["year"],
+          "all_time": entry["all_time"],
+          "updated_at": now_dt,
+      }
+      row_obj = existing.pop(path_key, None)
+      if row_obj is not None:
+        row_obj.update(**payload)
+      else:
+        app_tables.scorecard_rollups.add_row(**payload)
+
+    for stale_row in existing.values():
+      stale_row.delete()
+
+    elapsed_sec = round(time.monotonic() - start_mono, 2)
+    _release_rollup_lock(
+        completed_at=datetime.now(timezone.utc),
+        time_run_seconds=elapsed_sec,
     )
+  except Exception:
+    elapsed_sec = round(time.monotonic() - start_mono, 2)
+    _release_rollup_lock(completed_at=None, time_run_seconds=elapsed_sec)
+    raise
 
-  if level == "country" and len(path_tuple) == 1:
-    region_val = path_tuple[0]
-    return _aggregate_rows(
-        app_tables.mapitems_test.search(region=region_val),
-        key_and_label_fn=_country_key_label,
-        path_fn=lambda k: [region_val, k],
-        next_level="state",
-        has_children=True,
-        bounds=bounds,
-        skip_all_zero=skip_all_zero,
-    )
 
-  if level == "state" and len(path_tuple) == 2:
-    region_val, country_code_val = path_tuple
-    matched = (
-        r for r in app_tables.mapitems_test.search(country_code=country_code_val)
-        if _clean_str(r["region"], "Unspecified Region") == region_val
-    )
-    return _aggregate_rows(
-        matched,
-        key_and_label_fn=_state_key_label,
-        path_fn=lambda k: [region_val, country_code_val, k],
-        next_level="city",
-        has_children=True,
-        bounds=bounds,
-        skip_all_zero=skip_all_zero,
-    )
-
-  if level == "city" and len(path_tuple) == 3:
-    region_val, country_code_val, state_val = path_tuple
-    matched = (
-        r for r in app_tables.mapitems_test.search(state=state_val)
-        if _clean_str(r["region"], "Unspecified Region") == region_val
-        and _clean_str(row["country_code"], "UNSPEC") == country_code_val
-    )
-    return _aggregate_rows(
-        matched,
-        key_and_label_fn=_city_key_label,
-        path_fn=lambda k: [region_val, country_code_val, state_val, k],
-        next_level="postal",
-        has_children=True,
-        bounds=bounds,
-        skip_all_zero=skip_all_zero,
-    )
-
-  if level == "postal" and len(path_tuple) == 4:
-    region_val, country_code_val, state_val, city_val = path_tuple
-    matched = (
-        r for r in app_tables.mapitems_test.search(city=city_val)
-        if _clean_str(r["region"], "Unspecified Region") == region_val
-        and _clean_str(r["country_code"], "UNSPEC") == country_code_val
-        and _clean_str(r["state"], "Unspecified State") == state_val
-    )
-    return _aggregate_rows(
-        matched,
-        key_and_label_fn=_postal_key_label,
-        path_fn=lambda k: [region_val, country_code_val, state_val, city_val, k],
-        next_level=None,
-        has_children=False,
-        bounds=bounds,
-        skip_all_zero=skip_all_zero,
-    )
-
-  return []
+@anvil.server.callable
+def start_scorecard_rollup(force=True):
+  started = trigger_rollup_if_needed(force=force)
+  return {"started": started}
 
 
 @anvil.server.callable
 def get_scorecard_children(level="region", path=None, force_refresh=False):
-  now_dt = datetime.now(timezone.utc)
-  bounds = _period_bounds(now_dt)
-  path_tuple = tuple(path or [])
-  cache_key = (level, path_tuple, now_dt.date().isoformat())
+  parent_key = "|".join(path or [])
+  skip_all_zero = level != "region"
+  next_level_map = {
+      "region": ("country", True),
+      "country": ("state", True),
+      "state": ("city", True),
+      "city": ("postal", True),
+      "postal": (None, False),
+  }
+  if level not in next_level_map:
+    return []
 
-  now_ts = time.monotonic()
-  cached = _BRANCH_CACHE.get(cache_key)
-  if not force_refresh and cached is not None:
-    built_at, cached_rows = cached
-    if (now_ts - built_at) <= _BRANCH_CACHE_TTL:
-      return cached_rows
+  rollup_rows = list(
+      app_tables.scorecard_rollups.search(level=level, parent_key=parent_key)
+  )
 
-  rows = _compute_branch(level, path_tuple, bounds)
-  _BRANCH_CACHE[cache_key] = (now_ts, rows)
+  if level == "region":
+    trigger_rollup_if_needed(force=(force_refresh or not rollup_rows))
+
+  next_level, has_children = next_level_map[level]
+  base_path = list(path or [])
+  rows = []
+
+  for r in rollup_rows:
+    counts = {k: int(r[k] or 0) for k in METRIC_KEYS}
+    if skip_all_zero and not any(v > 0 for v in counts.values()):
+      continue
+
+    calc_key = r["calc_key"] or r["label"]
+    rows.append({
+        "area": r["label"],
+        "level": next_level,
+        "path": base_path + [calc_key],
+        "has_children": has_children,
+        "today": f"{counts['today']:,}",
+        "week": f"{counts['week']:,}",
+        "month": f"{counts['month']:,}",
+        "quarter": f"{counts['quarter']:,}",
+        "year": f"{counts['year']:,}",
+        "all_time": f"{counts['all_time']:,}",
+    })
+
+  rows.sort(key=lambda item: item["area"].lower())
   return rows
-
-
-@anvil.server.callable
-def refresh_scorecard_cache():
-  _BRANCH_CACHE.clear()
-  return {"status": "cleared"}
