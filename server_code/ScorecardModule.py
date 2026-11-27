@@ -1,8 +1,3 @@
-Here is the complete, ready-to-paste server code for **`ScorecardModule`**. 
-
-*(Note: I also included a `rebuild_scorecard_rollups` background task alias at the bottom of the task section so that whether your Scheduled Task dropdown is set to `rebuild_scorecard_rollups` or `rebuild_scorecard_rollups_task`, it will execute properly.)*
-
-```python
 import time
 from datetime import datetime, timedelta, timezone
 import anvil.server
@@ -25,7 +20,7 @@ def _format_code_with_name(code_val, name_val, fallback):
     code = _clean_str(code_val)
     name = _clean_str(name_val)
     if code and name and name.lower() != code.lower():
-        return f"{code} ({name})"
+        return f"{} ({})"
     if code:
         return code
     if name:
@@ -175,21 +170,21 @@ def rebuild_scorecard_rollups_task(lock_acquired=False):
                 ("country", region, country_code, country_label, (region, country_code)),
                 (
                     "state",
-                    f"{region}|{country_code}",
+                    f"{}|{}",
                     state_code,
                     state_label,
                     (region, country_code, state_code),
                 ),
                 (
                     "city",
-                    f"{region}|{country_code}|{state_code}",
+                    f"{}|{}|{}",
                     city,
                     city,
                     (region, country_code, state_code, city),
                 ),
                 (
                     "postal",
-                    f"{region}|{country_code}|{state_code}|{city}",
+                    f"{}|{}|{}|{}",
                     postal,
                     postal,
                     (region, country_code, state_code, city, postal),
@@ -311,10 +306,3 @@ def get_scorecard_children(level="region", path=None, force_refresh=False):
 
     rows.sort(key=lambda item: item["area"].lower())
     return rows
-```
-
-### Final Steps in Anvil After Pasting
-1. **Resolve Schema Warning:** Go to Data Tables → `scorecard_status` and click **Resolve differences...** in the yellow banner.
-2. **Publish Your Latest Code:** Click **Publish** in the top-right corner and update your Published version (Anvil Scheduled Tasks only execute on Published/enabled environments, not in the editor).
-3. **Check Environment Settings:** Under **Publish → Environments** (expand *Advanced Settings*), confirm **Run scheduled tasks** is checked on the environment connected to **Default Database**.
-  
