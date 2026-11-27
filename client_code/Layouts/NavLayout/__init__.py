@@ -119,7 +119,7 @@ class NavLayout(NavLayoutTemplate):
   @handle("have_done", "click")
   def have_done_click(self, **event_args):
     """This method is called when the link is clicked"""
-    open_form("Layouts.NavLayout.HaveDone")
+    open_form("Layouts.NavLayout.Profile.HaveDone")
 
   @handle("best_friends", "click")
   def best_friends_click(self, **event_args):
@@ -181,3 +181,8 @@ class NavLayout(NavLayoutTemplate):
   def terms_click(self, **event_args):
     """This method is called when the link is clicked"""
     open_form("Layouts.NavLayout.Terms")
+
+  @handle("qr_code", "click")
+  def qr_code_click(self, **event_args):
+    """This method is called when the link is clicked"""
+    open_form("Layouts.NavLayout.Profile.QRCode")

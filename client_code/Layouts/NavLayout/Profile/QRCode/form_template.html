@@ -1,0 +1,14 @@
+<anvil-form layout="Mapping_Test.Layouts.NavLayout">
+  <anvil-block slot="title">
+    <anvil-component type="Label" name="title_label" prop:role="h1" prop:text="QR Code"></anvil-component>
+  </anvil-block>
+  <anvil-block slot="content">
+    <anvil-component type="ColumnPanel" name="about_card" prop:role="card">
+      <anvil-component type="RichText" name="about_rich_text" prop:format="markdown" prop:content="### QR Code
+" prop:height="481.81951904296875" container:grid_position="FCOYCI,STMOUL"></anvil-component>
+      <anvil-component type="TextArea" name="text_area_1" prop:text="You can generate a custom QR Code that links to your public Profile page. Place this QR Code on your social media accounts to invite others to join you on The Naturist Map" container:grid_position="WUKNCX,CUBXNE"></anvil-component>
+      <anvil-component type="Button" name="make_qr_code" prop:text="Generate QR Code" on:click="self.make_qr_code_click" container:grid_position="STGFWT,HHOOMB"></anvil-component>
+      <anvil-component type="Image" name="qr_code_image" container:grid_position="GGFNRG,ZEXRJH"></anvil-component>
+    </anvil-component>
+  </anvil-block>
+</anvil-form>
