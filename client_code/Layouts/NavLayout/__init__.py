@@ -16,7 +16,7 @@ _BEST_FRIENDS_SUBLINKS = (
     "commercial",
     "associations",
     "books",
-    "other"
+    "other",
 )
 
 
@@ -31,13 +31,23 @@ class NavLayout(NavLayoutTemplate):
     _active_nav_layout = self
     super().__init__(**properties)
 
-    if hasattr(self, "login_register_link") and self.login_register_link is not None:
+    if (
+        hasattr(self, "login_register_link")
+        and self.login_register_link is not None
+    ):
       auth_visibility.bind(self.login_register_link, "login_register_link")
     if hasattr(self, "logout_link") and self.logout_link is not None:
       auth_visibility.bind(self.logout_link, "logout_link")
 
     self.set_best_friends_expanded(_best_friends_expanded)
     self.refresh_auth_links()
+
+  def show_in_content(self, component):
+    if hasattr(self, "slots") and "content" in self.slots:
+      self.slots["content"].clear()
+      self.slots["content"].add_component(component)
+    else:
+      self.add_component(component, slot="content")
 
   def set_best_friends_expanded(self, expanded):
     global _best_friends_expanded
@@ -71,7 +81,9 @@ class NavLayout(NavLayoutTemplate):
   @handle("view_scorecard_link", "click")
   def scorecard_link_click(self, **event_args):
     """This method is called when the link is clicked"""
-    open_form("Layouts.NavLayout.Scorecard")
+    from .Scorecard import Scorecard
+
+    self.show_in_content(Scorecard())
 
   @handle("view_map_link", "click")
   def map_link_click(self, **event_args):

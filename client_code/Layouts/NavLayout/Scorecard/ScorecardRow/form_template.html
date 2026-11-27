@@ -1,12 +1,15 @@
 <style>
-  [anvil-dom-node="row-grid"].sc-grid,
-  .sc-grid {
+  [anvil-dom-node="row-grid"],
+  [anvil-dom-node="row-grid"] * {
+    box-sizing: border-box;
+  }
+
+  [anvil-dom-node="row-grid"].sc-grid {
     display: grid !important;
-    grid-template-columns: var(--sc-cols, minmax(0, 4fr) repeat(6, minmax(0, 0.5fr))) !important;
+    grid-template-columns: var(--sc-cols, minmax(0, 3fr) repeat(4, minmax(0, 0.5fr)) minmax(0, 0.75fr) minmax(0, 0.75fr)) !important;
     align-items: center !important;
     width: 100% !important;
     max-width: none !important;
-    box-sizing: border-box !important;
     border-bottom: 1px solid #e5e7eb;
   }
 
@@ -20,46 +23,49 @@
     background-color: #f9fafb;
   }
 
-  [anvil-dom-node="row-grid"] .sc-cell {
-    min-width: 0 !important;
-    padding: 6px 6px !important;
-    box-sizing: border-box !important;
-    overflow: hidden;
-  }
-
-  [anvil-dom-node="row-grid"] .sc-cell > anvil-slot {
-    display: contents !important;
-  }
-
-  [anvil-dom-node="row-grid"] .sc-cell > .anvil-component,
-  [anvil-dom-node="row-grid"] .sc-cell > anvil-slot > .anvil-component {
+  [anvil-dom-node="row-grid"] > anvil-slot,
+  [anvil-dom-node="row-grid"] > anvil-slot > *,
+  [anvil-dom-node="row-grid"] > .anvil-component {
     display: block !important;
     width: 100% !important;
     min-width: 0 !important;
-    box-sizing: border-box !important;
+    padding: 6px 6px !important;
   }
 
-  [anvil-dom-node="row-grid"] .sc-area {
-    text-align: left;
+  [anvil-dom-node="row-grid"] [name="slot_area"],
+  [anvil-dom-node="row-grid"] [name="slot_area"] * {
+    text-align: left !important;
   }
 
-  [anvil-dom-node="row-grid"] .sc-num {
-    text-align: right;
+  [anvil-dom-node="row-grid"] [name="slot_today"],
+  [anvil-dom-node="row-grid"] [name="slot_week"],
+  [anvil-dom-node="row-grid"] [name="slot_month"],
+  [anvil-dom-node="row-grid"] [name="slot_quarter"],
+  [anvil-dom-node="row-grid"] [name="slot_year"],
+  [anvil-dom-node="row-grid"] [name="slot_all_time"],
+  [anvil-dom-node="row-grid"] [name="slot_today"] *,
+  [anvil-dom-node="row-grid"] [name="slot_week"] *,
+  [anvil-dom-node="row-grid"] [name="slot_month"] *,
+  [anvil-dom-node="row-grid"] [name="slot_quarter"] *,
+  [anvil-dom-node="row-grid"] [name="slot_year"] *,
+  [anvil-dom-node="row-grid"] [name="slot_all_time"] * {
+    text-align: right !important;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
 
-  [anvil-dom-node="row-grid"].sc-sub .sc-area {
+  [anvil-dom-node="row-grid"].sc-sub [name="slot_area"],
+  [anvil-dom-node="row-grid"].sc-sub [name="slot_area"] * {
     padding-left: 22px !important;
   }
 </style>
 
 <div anvil-dom-node="row-grid" class="sc-grid">
-  <div class="sc-cell sc-area"><anvil-slot name="slot_area"></anvil-slot></div>
-  <div class="sc-cell sc-num"><anvil-slot name="slot_today"></anvil-slot></div>
-  <div class="sc-cell sc-num"><anvil-slot name="slot_week"></anvil-slot></div>
-  <div class="sc-cell sc-num"><anvil-slot name="slot_month"></anvil-slot></div>
-  <div class="sc-cell sc-num"><anvil-slot name="slot_quarter"></anvil-slot></div>
-  <div class="sc-cell sc-num"><anvil-slot name="slot_year"></anvil-slot></div>
-  <div class="sc-cell sc-num"><anvil-slot name="slot_all_time"></anvil-slot></div>
+  <anvil-slot name="slot_area"></anvil-slot>
+  <anvil-slot name="slot_today"></anvil-slot>
+  <anvil-slot name="slot_week"></anvil-slot>
+  <anvil-slot name="slot_month"></anvil-slot>
+  <anvil-slot name="slot_quarter"></anvil-slot>
+  <anvil-slot name="slot_year"></anvil-slot>
+  <anvil-slot name="slot_all_time"></anvil-slot>
 </div>

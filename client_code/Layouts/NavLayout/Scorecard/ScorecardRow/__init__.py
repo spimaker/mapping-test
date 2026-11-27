@@ -24,6 +24,12 @@ class ScorecardRow(ScorecardRowTemplate):
     self._labels = {}
     self.set_row_data(values or {}, row_type=row_type)
 
+  def _add_to_slot(self, component, slot_name):
+    if hasattr(self, "slots") and slot_name in self.slots:
+      self.slots[slot_name].add_component(component)
+    else:
+      self.add_component(component, slot=slot_name)
+
   def set_row_data(self, values_by_key, row_type="sub"):
     for lbl in self._labels.values():
       lbl.remove_from_parent()
@@ -54,5 +60,5 @@ class ScorecardRow(ScorecardRowTemplate):
           spacing_above="none",
           spacing_below="none",
       )
-      self.add_component(lbl, slot=slot_name)
+      self._add_to_slot(lbl, slot_name)
       self._labels[key] = lbl

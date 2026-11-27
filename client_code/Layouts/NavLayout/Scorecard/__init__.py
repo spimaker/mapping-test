@@ -20,8 +20,8 @@ SAMPLE_GROUPS = [
             "week": "19",
             "month": "82",
             "quarter": "240",
-            "year": "910",
-            "all_time": "3,420",
+            "year": "1,000,910",
+            "all_time": "3,420,999",
         },
         "children": [
             {
@@ -56,6 +56,12 @@ class Scorecard(ScorecardTemplate):
     self._build_headers()
     self.render_scorecard(SAMPLE_GROUPS if groups is None else groups)
 
+  def _add_to_target(self, component, slot_name):
+    if hasattr(self, "slots") and slot_name in self.slots:
+      self.slots[slot_name].add_component(component)
+    else:
+      self.add_component(component, slot=slot_name)
+
   def _build_headers(self):
     for lbl in self._header_labels:
       lbl.remove_from_parent()
@@ -69,7 +75,7 @@ class Scorecard(ScorecardTemplate):
           spacing_above="none",
           spacing_below="none",
       )
-      self.add_component(lbl, slot=slot_name)
+      self._add_to_target(lbl, slot_name)
       self._header_labels.append(lbl)
 
   def clear_rows(self):
@@ -85,7 +91,7 @@ class Scorecard(ScorecardTemplate):
           values=group.get("parent", {}),
           row_type="parent",
       )
-      self.add_component(parent_row, slot="rows_slot")
+      self._add_to_target(parent_row, "rows_slot")
       self._rows.append(parent_row)
 
       for child in group.get("children", []):
@@ -93,5 +99,5 @@ class Scorecard(ScorecardTemplate):
             values=child,
             row_type="sub",
         )
-        self.add_component(child_row, slot="rows_slot")
+        self._add_to_target(child_row, "rows_slot")
         self._rows.append(child_row)

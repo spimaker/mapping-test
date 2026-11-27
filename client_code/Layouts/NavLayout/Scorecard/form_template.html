@@ -1,11 +1,14 @@
 <style>
-  [anvil-dom-node="sc-root"].sc-wrapper,
-  .sc-wrapper {
-    --sc-cols: minmax(0, 4fr) repeat(6, minmax(0, 0.5fr));
+  [anvil-dom-node="sc-root"],
+  [anvil-dom-node="sc-root"] * {
+    box-sizing: border-box;
+  }
+
+  [anvil-dom-node="sc-root"].sc-wrapper {
+    --sc-cols: minmax(0, 3fr) repeat(4, minmax(0, 0.5fr)) minmax(0, 0.75fr) minmax(0, 0.75fr);
     display: block !important;
     width: 100% !important;
     max-width: none !important;
-    box-sizing: border-box !important;
   }
 
   [anvil-dom-node="sc-root"] .sc-header-grid {
@@ -13,71 +16,66 @@
     grid-template-columns: var(--sc-cols) !important;
     align-items: center !important;
     width: 100% !important;
-    box-sizing: border-box !important;
     font-weight: 700;
     color: #111827;
     border-bottom: 2px solid #9ca3af;
+  }
+
+  [anvil-dom-node="sc-root"] .sc-header-grid > anvil-slot,
+  [anvil-dom-node="sc-root"] .sc-header-grid > anvil-slot > *,
+  [anvil-dom-node="sc-root"] .sc-header-grid > .anvil-component {
+    display: block !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    padding: 6px 6px !important;
+  }
+
+  [anvil-dom-node="sc-root"] [name="hdr_area"],
+  [anvil-dom-node="sc-root"] [name="hdr_area"] * {
+    text-align: left !important;
+  }
+
+  [anvil-dom-node="sc-root"] [name="hdr_today"],
+  [anvil-dom-node="sc-root"] [name="hdr_week"],
+  [anvil-dom-node="sc-root"] [name="hdr_month"],
+  [anvil-dom-node="sc-root"] [name="hdr_quarter"],
+  [anvil-dom-node="sc-root"] [name="hdr_year"],
+  [anvil-dom-node="sc-root"] [name="hdr_all_time"],
+  [anvil-dom-node="sc-root"] [name="hdr_today"] *,
+  [anvil-dom-node="sc-root"] [name="hdr_week"] *,
+  [anvil-dom-node="sc-root"] [name="hdr_month"] *,
+  [anvil-dom-node="sc-root"] [name="hdr_quarter"] *,
+  [anvil-dom-node="sc-root"] [name="hdr_year"] *,
+  [anvil-dom-node="sc-root"] [name="hdr_all_time"] * {
+    text-align: right !important;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
 
   [anvil-dom-node="sc-root"] .sc-rows-stack {
     display: flex !important;
     flex-direction: column !important;
     width: 100% !important;
-    max-width: none !important;
-    box-sizing: border-box !important;
   }
 
-  [anvil-dom-node="sc-root"] .sc-rows-stack > anvil-slot {
-    display: contents !important;
-  }
-
-  [anvil-dom-node="sc-root"] .sc-rows-stack > .anvil-component,
-  [anvil-dom-node="sc-root"] .sc-rows-stack > anvil-slot > .anvil-component {
+  [anvil-dom-node="sc-root"] .sc-rows-stack > anvil-slot,
+  [anvil-dom-node="sc-root"] .sc-rows-stack > anvil-slot > *,
+  [anvil-dom-node="sc-root"] .sc-rows-stack > .anvil-component {
     display: block !important;
     width: 100% !important;
     max-width: none !important;
-    box-sizing: border-box !important;
-  }
-
-  [anvil-dom-node="sc-root"] .sc-cell {
-    min-width: 0 !important;
-    padding: 6px 6px !important;
-    box-sizing: border-box !important;
-    overflow: hidden;
-  }
-
-  [anvil-dom-node="sc-root"] .sc-cell > anvil-slot {
-    display: contents !important;
-  }
-
-  [anvil-dom-node="sc-root"] .sc-cell > .anvil-component,
-  [anvil-dom-node="sc-root"] .sc-cell > anvil-slot > .anvil-component {
-    display: block !important;
-    width: 100% !important;
-    min-width: 0 !important;
-    box-sizing: border-box !important;
-  }
-
-  [anvil-dom-node="sc-root"] .sc-area {
-    text-align: left;
-  }
-
-  [anvil-dom-node="sc-root"] .sc-num {
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
   }
 </style>
 
 <div anvil-dom-node="sc-root" class="sc-wrapper">
   <div class="sc-header-grid">
-    <div class="sc-cell sc-area"><anvil-slot name="hdr_area"></anvil-slot></div>
-    <div class="sc-cell sc-num"><anvil-slot name="hdr_today"></anvil-slot></div>
-    <div class="sc-cell sc-num"><anvil-slot name="hdr_week"></anvil-slot></div>
-    <div class="sc-cell sc-num"><anvil-slot name="hdr_month"></anvil-slot></div>
-    <div class="sc-cell sc-num"><anvil-slot name="hdr_quarter"></anvil-slot></div>
-    <div class="sc-cell sc-num"><anvil-slot name="hdr_year"></anvil-slot></div>
-    <div class="sc-cell sc-num"><anvil-slot name="hdr_all_time"></anvil-slot></div>
+    <anvil-slot name="hdr_area"></anvil-slot>
+    <anvil-slot name="hdr_today"></anvil-slot>
+    <anvil-slot name="hdr_week"></anvil-slot>
+    <anvil-slot name="hdr_month"></anvil-slot>
+    <anvil-slot name="hdr_quarter"></anvil-slot>
+    <anvil-slot name="hdr_year"></anvil-slot>
+    <anvil-slot name="hdr_all_time"></anvil-slot>
   </div>
 
   <div class="sc-rows-stack">
