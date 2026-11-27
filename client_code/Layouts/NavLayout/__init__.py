@@ -18,6 +18,11 @@ _BEST_FRIENDS_SUBLINKS = (
     "books",
     "other",
 )
+_profile_expanded = False
+_PROFILE_SUBLINKS = (
+    "have_done",
+    "qr_code",
+)
 
 
 def get_active_nav_layout():
@@ -40,6 +45,7 @@ class NavLayout(NavLayoutTemplate):
       auth_visibility.bind(self.logout_link, "logout_link")
 
     self.set_best_friends_expanded(_best_friends_expanded)
+    self.set_profile_expanded(_profile_expanded)
     self.refresh_auth_links()
 
   def show_in_content(self, component):
@@ -62,6 +68,19 @@ class NavLayout(NavLayoutTemplate):
       if comp is not None:
         comp.visible = _best_friends_expanded
 
+  def set_profile_expanded(self, expanded):
+    global _profile_expanded
+    _profile_expanded = bool(expanded)
+
+    if hasattr(self, "profile") and self.profile is not None:
+      arrow = "▾" if _profile_expanded else "▸"
+      self.profile.text = f"Profile {arrow}"
+
+    for name in _PROFILE_SUBLINKS:
+      comp = getattr(self, name, None)
+      if comp is not None:
+        comp.visible = _profile_expanded
+
   def set_auth_state(self, is_logged_in):
     auth_visibility.set_logged_in(bool(is_logged_in))
 
@@ -71,6 +90,7 @@ class NavLayout(NavLayoutTemplate):
   @handle("self", "show")
   def form_show(self, **event_args):
     self.set_best_friends_expanded(_best_friends_expanded)
+    self.set_profile_expanded(_profile_expanded)
     self.refresh_auth_links()
 
   @handle("about_link", "click")
@@ -114,6 +134,7 @@ class NavLayout(NavLayoutTemplate):
   @handle("profile", "click")
   def profile_click(self, **event_args):
     """This method is called when the link is clicked"""
+    self.set_profile_expanded(not _profile_expanded)
     open_form("Layouts.NavLayout.Profile")
 
   @handle("have_done", "click")

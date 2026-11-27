@@ -17,6 +17,29 @@ def is_valid_email(email):
   return bool(re.match(pattern, str(email).strip()))
 
 
+def _safe_get(row, col_name):
+  """Safely reads a column/attribute/key from an Anvil Row, dict, or object."""
+  if row is None:
+    return None
+  try:
+    return row[col_name]
+  except Exception:
+    pass
+  return getattr(row, col_name, None)
+
+
+def _get_table(name):
+  """Gets a table from app_tables using exact name first, then case-insensitive match."""
+  tbl = getattr(app_tables, name, None)
+  if tbl is not None:
+    return tbl
+  target = name.lower()
+  for attr in dir(app_tables):
+    if attr.lower() == target:
+      return getattr(app_tables, attr)
+  return None
+
+
 def _find_user_by_email(email):
   """Case-insensitive lookup in app_tables.users by email."""
   target = (email or "").strip().lower()
@@ -45,6 +68,64 @@ def _find_user_by_username(user_name):
       ),
       None,
   )
+
+
+def _find_user_profile_row(user_name):
+  """Case-insensitive lookup in User_profile by user column."""
+  clean_user = (user_name or "").strip()
+  if not clean_user:
+    return None
+
+  profile_tbl = _get_table("User_profile")
+  if profile_tbl is None:
+    return None
+
+  try:
+    row = profile_tbl.get(user=clean_user)
+    if row is not None:
+      return row
+  except Exception:
+    pass
+
+  target_lower = clean_user.lower()
+  try:
+    return next(
+        (
+            r
+            for r in profile_tbl.search()
+            if str(_safe_get(r, "user") or "").strip().lower() == target_lower
+        ),
+        None,
+    )
+  except Exception:
+    return None
+
+
+def _sync_user_profile(user_name, qr_media=None):
+  """Creates or updates the User_profile row for user_name."""
+  clean_user = (user_name or "").strip()
+  if not clean_user:
+    return None
+
+  profile_tbl = _get_table("User_profile")
+  if profile_tbl is None:
+    return None
+
+  row = _find_user_profile_row(clean_user)
+  if row is None:
+    row_data = {"user": clean_user}
+    if qr_media is not None:
+      row_data["qr_code"] = qr_media
+    return profile_tbl.add_row(**row_data)
+
+  if qr_media is not None:
+    row.update(qr_code=qr_media)
+  return row
+
+
+def save_user_qr_code(user_name, qr_media):
+  """Saves generated QR Media into User_profile.qr_code for user_name."""
+  return _sync_user_profile(user_name, qr_media=qr_media)
 
 
 def _generate_and_send_otp(user, email, expiry_minutes=15):
@@ -124,7 +205,10 @@ def register_user(
       signed_up=now_utc,
   )
 
-  # 4. Generate and email OTP
+  # 4. Create initial User_profile row with user set to user_name
+  _sync_user_profile(clean_user_name)
+
+  # 5. Generate and email OTP
   return _generate_and_send_otp(user, clean_email)
 
 
@@ -281,29 +365,6 @@ def clear_authenticated_user():
   except Exception:
     pass
   return {"status": "success", "is_logged_in": False}
-
-
-def _safe_get(row, col_name):
-  """Safely reads a column/attribute/key from an Anvil Row, dict, or object."""
-  if row is None:
-    return None
-  try:
-    return row[col_name]
-  except Exception:
-    pass
-  return getattr(row, col_name, None)
-
-
-def _get_table(name):
-  """Gets a table from app_tables using exact name first, then case-insensitive match."""
-  tbl = getattr(app_tables, name, None)
-  if tbl is not None:
-    return tbl
-  target = name.lower()
-  for attr in dir(app_tables):
-    if attr.lower() == target:
-      return getattr(app_tables, attr)
-  return None
 
 
 def _find_row_by_user_name(table, user_name):

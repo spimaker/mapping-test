@@ -270,7 +270,7 @@ class Login_register(Login_registerTemplate):
         if res["status"] == "success":
           self._sync_nav_auth_state(res.get("is_logged_in", True))
           anvil.Notification("Successfully authenticated!").show()
-          open_form("Layouts.NavLayout.MapEntry")
+          open_form("Layouts.NavLayout.About")
         else:
           self._set_code_value_error_outline(True)
           anvil.alert(res["message"], title="Verification Failed")
