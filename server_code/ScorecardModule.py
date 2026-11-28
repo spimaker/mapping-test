@@ -1,8 +1,11 @@
 import time
 from datetime import datetime, timedelta, timezone
+import datetime
 import anvil.server
 import anvil.tables
 from anvil.tables import app_tables
+import random
+from anvil.tables import app_tables, query as q
 
 METRIC_KEYS = ("today", "week", "month", "quarter", "year", "all_time")
 STALE_AFTER_MINUTES = 60
@@ -306,3 +309,30 @@ def get_scorecard_children(level="region", path=None, force_refresh=False):
 
     rows.sort(key=lambda item: item["area"].lower())
     return rows
+
+@anvil.server.background_task
+def randomize_mapitem_dates_task():
+    now_utc = datetime.datetime.now(datetime.timezone.utc)
+    max_seconds = 120 * 24 * 60 * 60
+    updated_count = 0
+
+    for row in app_tables.mapitems_test.search(q.fetch_only()):
+        offset_seconds = random.uniform(0, max_seconds)
+        random_dt = now_utc - datetime.timedelta(seconds=offset_seconds)
+        row.update(date_time=random_dt)
+        updated_count += 1
+
+    anvil.server.task_state['updated_count'] = updated_count
+
+    # Trigger rebuild_scorecard_rollup after all dates are updated
+    if 'rebuild_scorecard_rollup' in globals() and callable(globals()['rebuild_scorecard_rollup']):
+        rebuild_scorecard_rollup()
+    else:
+        # Fallback if rebuild_scorecard_rollup is defined as a separate @anvil.server.background_task
+        anvil.server.launch_background_task('rebuild_scorecard_rollup')
+
+
+@anvil.server.callable
+def start_randomize_mapitem_dates():
+    task = anvil.server.launch_background_task('randomize_mapitem_dates_task')
+    return f"Started date randomization & scorecard rollup task (Task ID: {task.get_id()})."

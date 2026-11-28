@@ -21,6 +21,7 @@ class MapEntry(MapEntryTemplate):
     self._js_gmap = None
     self._radial_prompt_shown = False
     self._last_radial_zoom = None
+    self._last_zoom_level = None
     self._radius_selected = False
     self._user_postal_marker_data = None
 
@@ -157,7 +158,13 @@ class MapEntry(MapEntryTemplate):
       east = float(bounds["east"])
       west = float(bounds["west"])
       mid_lat = (north + south) / 2.0
-      width_km = self._haversine_km(mid_lat, west, mid_lat, east)
+      dlon_deg = east - west
+      if dlon_deg <= 0:
+        dlon_deg += 360.0
+      earth_circ_km = (
+          2.0 * math.pi * 6371.0 * max(0.05, math.cos(math.radians(mid_lat)))
+      )
+      width_km = earth_circ_km * (dlon_deg / 360.0)
       unit = str(cluster_type or "").strip().lower()
       if unit in ["miles", "mi"]:
         return width_km / 1.60934
@@ -504,20 +511,36 @@ class MapEntry(MapEntryTemplate):
 
               var EXIT_BTN_ID = 'anvil-exit-map-fullscreen-btn';
               var STYLE_ID = 'anvil-fullscreen-modal-zindex-style';
+              var MODAL_SELECTOR = [
+                  '.modal',
+                  '.modal-backdrop',
+                  '.modal-dialog',
+                  '.anvil-modal',
+                  '.anvil-modal-backdrop',
+                  '.anvil-modal-dialog',
+                  '.anvil-alert-modal',
+                  '#alert-modal',
+                  '[role="dialog"]',
+                  '[role="alertdialog"]',
+                  '.anvil-alert'
+              ].join(', ');
 
               function raiseModalsAboveFullscreen() {
                   if (!document.getElementById(STYLE_ID)) {
                       var style = document.createElement('style');
                       style.id = STYLE_ID;
                       style.textContent = [
-                          '.modal-backdrop { z-index: 199990 !important; }',
-                          '.modal, [role="dialog"], .anvil-alert { z-index: 200000 !important; }'
+                          '.modal-backdrop, .anvil-modal-backdrop { z-index: 199990 !important; }',
+                          '.modal, .modal-dialog, .anvil-modal, .anvil-modal-dialog, .anvil-alert-modal, #alert-modal, [role="dialog"], [role="alertdialog"], .anvil-alert { z-index: 200000 !important; }',
+                          '[data-anvil-map-expanded="true"] .gm-fullscreen-control { display: none !important; }'
                       ].join('\\n');
                       document.head.appendChild(style);
                   }
-                  var nodes = document.querySelectorAll('.modal, .modal-backdrop, [role="dialog"], .anvil-alert');
+                  var nodes = document.querySelectorAll(MODAL_SELECTOR);
                   for (var i = 0; i < nodes.length; i++) {
-                      nodes[i].style.zIndex = nodes[i].classList.contains('modal-backdrop') ? '199990' : '200000';
+                      if (root.contains(nodes[i])) continue;
+                      var isBackdrop = nodes[i].classList.contains('modal-backdrop') || nodes[i].classList.contains('anvil-modal-backdrop');
+                      nodes[i].style.setProperty('z-index', isBackdrop ? '199990' : '200000', 'important');
                   }
               }
 
@@ -526,10 +549,15 @@ class MapEntry(MapEntryTemplate):
                   if (window._anvilFsModalObserver) {
                       window._anvilFsModalObserver.disconnect();
                   }
-                  var obs = new MutationObserver(function() {
-                      raiseModalsAboveFullscreen();
+                  var obs = new MutationObserver(function(mutations) {
+                      var hasAdded = mutations.some(function(m) {
+                          return m.addedNodes && m.addedNodes.length > 0;
+                      });
+                      if (hasAdded) {
+                          raiseModalsAboveFullscreen();
+                      }
                   });
-                  obs.observe(document.body, { childList: true, subtree: true });
+                  obs.observe(document.body, { childList: true, subtree: false });
                   window._anvilFsModalObserver = obs;
               }
 
@@ -714,6 +742,19 @@ class MapEntry(MapEntryTemplate):
       cluster_type = cluster_type or "region"
       zoom_level, bounds = self._get_current_zoom_and_bounds()
 
+      try:
+        cur_zoom = float(zoom_level) if zoom_level is not None else None
+      except (TypeError, ValueError):
+        cur_zoom = None
+
+      zoomed_in = (
+          cur_zoom is not None
+          and self._last_zoom_level is not None
+          and cur_zoom > self._last_zoom_level
+      )
+      if cur_zoom is not None:
+        self._last_zoom_level = cur_zoom
+
       is_radial = self._is_radial_mode(cluster_type)
       if is_radial:
         radius = self._parse_radius_value(distance_value)
@@ -885,7 +926,24 @@ class MapEntry(MapEntryTemplate):
         latest = markers[0]
         self.map_1.center = self.map_1.LatLng(latest["lat"], latest["lon"])
         self.map_1.zoom = 4
+        self._last_zoom_level = 4.0
         self._initial_centered = True
+      else:
+        ct_lower = str(cluster_type or "").strip().lower()
+        if zoomed_in and ct_lower in {
+            "country",
+            "state",
+            "city",
+            "postal code",
+            "postal",
+        }:
+          alert(
+              content=(
+                  "Center the map on your area of interest and zoom in closer."
+              ),
+              title="Zoom In to View Clusters",
+              large=False,
+          )
     finally:
       self._refresh_lock = False
       self._loading_map = False
@@ -998,6 +1056,7 @@ class MapEntry(MapEntryTemplate):
       # Center and zoom into the user's postal code area
       self.map_1.center = target_pos
       self.map_1.zoom = 12
+      self._last_zoom_level = 12.0
 
       # Reset signature so clusters refresh for the new viewport and re-draw the green marker
       self._last_viewport_sig = None

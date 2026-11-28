@@ -236,4 +236,21 @@ class ConversionProcesses(ConversionProcessesTemplate):
             if btn:
               btn.enabled = True
 
+    @anvil.handle("randomize_mapitem_dates", "click")
+    def randomize_mapitem_dates_click(self, **event_args):
+        """Triggered when the button is clicked to randomize MapItems_Test dates and rebuild the scorecard rollup."""
+        try:
+          result_message = anvil.server.call("start_randomize_mapitem_dates")
+          alert(
+              content=result_message,
+              title="Background Task Started",
+              large=False,
+          )
+        except Exception as e:
+          alert(
+              content=f"Error launching background task: {e}",
+              title="Error",
+              large=False,
+          )
+
     
