@@ -10,115 +10,110 @@ from ....AuthVisibilityService import auth_visibility
 class MapEntry(MapEntryTemplate):
 
   def __init__(self, **properties):
-      self.init_components(**properties)
-      self.last_saved_record_id = None
-      self._refresh_lock = False
-      self._loading_map = False
-      self._initial_centered = False
-      self._last_viewport_sig = None
-      self._debounce_timeout_id = None
-      self._debounce_callback = self._run_debounced_refresh
-      self._js_gmap = None
-      self._radial_prompt_shown = False
-      self._last_radial_zoom = None
-      self._radius_selected = False
-      self._user_postal_marker_data = None
+    self.init_components(**properties)
+    self.last_saved_record_id = None
+    self._refresh_lock = False
+    self._loading_map = False
+    self._initial_centered = False
+    self._last_viewport_sig = None
+    self._debounce_timeout_id = None
+    self._debounce_callback = self._run_debounced_refresh
+    self._js_gmap = None
+    self._radial_prompt_shown = False
+    self._last_radial_zoom = None
+    self._radius_selected = False
+    self._user_postal_marker_data = None
 
-      self.use_test_table = True
+    self.use_test_table = True
 
-      if hasattr(self, "User_Name_Value") and self.User_Name_Value is not None:
-        self.User_Name_Value.set_event_handler(
-            "focus", self._populate_logged_in_user_name
-        )
-        try:
-          dom_node = anvil.js.get_dom_node(self.User_Name_Value)
-          dom_node.addEventListener(
-              "click", lambda e: self._populate_logged_in_user_name()
-          )
-        except Exception:
-          pass
-
-      if hasattr(self, "User_Name_Value") and self.User_Name_Value is not None:
-            self.User_Name_Value.set_event_handler(
-                "focus", self._populate_logged_in_user_name
-            )
-
-      if hasattr(self, "Map_my_location") and self.Map_my_location is not None:
-        auth_visibility.bind(self.Map_my_location, "map_my_location")
-        self.Map_my_location.set_event_handler(
-            "click", self.map_my_location_click
-        )
-
-      auth_visibility.refresh_auth_state()
-
-      self.Info_Link.role = "input-border"
-
-      self.Threshold_Label.visible = False
-      self.Threshold_Dropdown.visible = False
-
-      if hasattr(self, "Fullscreen_button"):
-        self.Fullscreen_button.set_event_handler(
-            "click", self.full_screen_map_button_click
-        )
-
+    if hasattr(self, "User_Name_Value") and self.User_Name_Value is not None:
+      self.User_Name_Value.set_event_handler(
+          "focus", self._populate_logged_in_user_name
+      )
       try:
-        self.Country_Code_Value.items = anvil.server.call("get_country_list")
-      except Exception as e:
-        print(f"get_country_list error: {e}")
+        dom_node = anvil.js.get_dom_node(self.User_Name_Value)
+        dom_node.addEventListener(
+            "click", lambda e: self._populate_logged_in_user_name()
+        )
+      except Exception:
+        pass
 
-      if hasattr(self, "Cluster_Type_Dropdown"):
-        self.Cluster_Type_Dropdown.selected_value = "Country"
+    if hasattr(self, "Map_my_location") and self.Map_my_location is not None:
+      auth_visibility.bind(self.Map_my_location, "map_my_location")
+      self.Map_my_location.set_event_handler(
+          "click", self.map_my_location_click
+      )
 
-      self.refresh_map_display(cluster_type="Country", force=True)
+    auth_visibility.refresh_auth_state()
 
-      for evt in ("bounds_changed", "zoom_changed", "dragend", "idle"):
-        try:
-          self.map_1.set_event_handler(
-              evt, lambda e=evt, **kw: self._on_map_viewport_change(evt_name=e, **kw)
-          )
-        except Exception as ex:
-          print(f"Failed attaching {evt}: {ex}")
+    self.Info_Link.role = "input-border"
 
-      self.repeating_panel_1.items = [
-          {"range": "1 – 999 records", "role": "swatch-8"},
-          {"range": "1,000 – 9,999 records", "role": "swatch-10"},
-          {"range": "10,000 – 99,999 records", "role": "swatch-12"},
-          {"range": "100,000 – 249,999 records", "role": "swatch-16"},
-          {"range": "250,000 – 999,999 records", "role": "swatch-18"},
-          {"range": "1,000,000+ records", "role": "swatch-20"},
-      ]
+    self.Threshold_Label.visible = False
+    self.Threshold_Dropdown.visible = False
+
+    if hasattr(self, "Fullscreen_button"):
+      self.Fullscreen_button.set_event_handler(
+          "click", self.full_screen_map_button_click
+      )
+
+    try:
+      self.Country_Code_Value.items = anvil.server.call("get_country_list")
+    except Exception as e:
+      print(f"get_country_list error: {e}")
+
+    if hasattr(self, "Cluster_Type_Dropdown"):
+      self.Cluster_Type_Dropdown.selected_value = "Country"
+
+    self.refresh_map_display(cluster_type="Country", force=True)
+
+    for evt in ("bounds_changed", "zoom_changed", "dragend", "idle"):
+      try:
+        self.map_1.set_event_handler(
+            evt, lambda e=evt, **kw: self._on_map_viewport_change(evt_name=e, **kw)
+        )
+      except Exception as ex:
+        print(f"Failed attaching {evt}: {ex}")
+
+    self.repeating_panel_1.items = [
+        {"range": "1 – 999 records", "role": "swatch-8"},
+        {"range": "1,000 – 9,999 records", "role": "swatch-10"},
+        {"range": "10,000 – 99,999 records", "role": "swatch-12"},
+        {"range": "100,000 – 249,999 records", "role": "swatch-16"},
+        {"range": "250,000 – 999,999 records", "role": "swatch-18"},
+        {"range": "1,000,000+ records", "role": "swatch-20"},
+    ]
 
   def _populate_logged_in_user_name(self, **event_args):
-      if getattr(self, "_checking_user_auth", False):
-        return
-      now_ts = anvil.js.window.performance.now()
-      if (now_ts - getattr(self, "_last_auth_prompt_ts", 0.0)) < 1500.0:
-        return
+    if getattr(self, "_checking_user_auth", False):
+      return
+    now_ts = anvil.js.window.performance.now()
+    if (now_ts - getattr(self, "_last_auth_prompt_ts", 0.0)) < 1500.0:
+      return
 
-      self._checking_user_auth = True
-      try:
-        user_name = anvil.server.call("get_authenticated_user_name")
-        if user_name:
-          self.User_Name_Value.text = user_name
-        else:
-          try:
-            anvil.js.get_dom_node(self.User_Name_Value).blur()
-          except Exception:
-            pass
-          self._last_auth_prompt_ts = anvil.js.window.performance.now()
-          go_to_login = alert(
-              "You must be logged in to enter a Map Item.",
-              title="Login Required",
-              buttons=[("Log In / Register", True), ("Cancel", False)],
-          )
-          self._last_auth_prompt_ts = anvil.js.window.performance.now()
-          if go_to_login:
-            anvil.open_form("Layouts.NavLayout.Login_register")
-      except Exception as e:
-        print(f"Error fetching authenticated user_name: {e}")
-      finally:
-        self._checking_user_auth = False
-        
+    self._checking_user_auth = True
+    try:
+      user_name = anvil.server.call("get_authenticated_user_name")
+      if user_name:
+        self.User_Name_Value.text = user_name
+      else:
+        try:
+          anvil.js.get_dom_node(self.User_Name_Value).blur()
+        except Exception:
+          pass
+        self._last_auth_prompt_ts = anvil.js.window.performance.now()
+        go_to_login = alert(
+            "You must be logged in to enter a Map Item.",
+            title="Login Required",
+            buttons=[("Log In / Register", True), ("Cancel", False)],
+        )
+        self._last_auth_prompt_ts = anvil.js.window.performance.now()
+        if go_to_login:
+          anvil.open_form("Layouts.NavLayout.Login_register")
+    except Exception as e:
+      print(f"Error fetching authenticated user_name: {e}")
+    finally:
+      self._checking_user_auth = False
+
   @staticmethod
   def _is_radial_mode(cluster_type):
     return bool(
@@ -170,6 +165,23 @@ class MapEntry(MapEntryTemplate):
     except Exception:
       return None
 
+  def _disable_native_fullscreen_control(self, gmap):
+    if gmap is None:
+      return
+    try:
+      anvil.js.call_js(
+          """
+          (function(m) {
+              if (m && typeof m.setOptions === 'function') {
+                  m.setOptions({ fullscreenControl: false });
+              }
+          })
+          """,
+          gmap,
+      )
+    except Exception:
+      pass
+
   def _find_js_gmap(self):
     if self._js_gmap is not None:
       return self._js_gmap
@@ -180,6 +192,7 @@ class MapEntry(MapEntryTemplate):
           hasattr(obj, "getBounds") or hasattr(obj, "getZoom")
       ):
         self._js_gmap = obj
+        self._disable_native_fullscreen_control(self._js_gmap)
         return self._js_gmap
 
     try:
@@ -188,6 +201,7 @@ class MapEntry(MapEntryTemplate):
             hasattr(v, "getBounds") or hasattr(v, "getZoom")
         ):
           self._js_gmap = v
+          self._disable_native_fullscreen_control(self._js_gmap)
           return self._js_gmap
     except Exception:
       pass
@@ -224,6 +238,7 @@ class MapEntry(MapEntryTemplate):
       )
       if found is not None:
         self._js_gmap = found
+        self._disable_native_fullscreen_control(self._js_gmap)
         return self._js_gmap
     except Exception:
       pass
@@ -441,23 +456,23 @@ class MapEntry(MapEntryTemplate):
         break
 
   def clear_button_click(self, **event_args):
-      self.User_Name_Value.text = ""
-      self.Country_Code_Value.selected_value = None
-      self.State_Province_Region_Value.selected_value = None
-      self.City_Value.selected_value = None
-      self.City_Value.items = [("<Select City>", None)]
+    self.User_Name_Value.text = ""
+    self.Country_Code_Value.selected_value = None
+    self.State_Province_Region_Value.selected_value = None
+    self.City_Value.selected_value = None
+    self.City_Value.items = [("<Select City>", None)]
 
-      self.Custom_City_Label.visible = False
-      self.Custom_City_TextBox.visible = False
-      self.Custom_City_TextBox.text = ""
+    self.Custom_City_Label.visible = False
+    self.Custom_City_TextBox.visible = False
+    self.Custom_City_TextBox.text = ""
 
-      self.Postal_Code_Value.text = ""
-      self.Address1_Value.text = ""
-      self.Address2_Value.text = ""
-      self.Latitude_Value.text = ""
-      self.Longitude_Value.text = ""
-      self.Formatted_Address_Value.text = ""
-        
+    self.Postal_Code_Value.text = ""
+    self.Address1_Value.text = ""
+    self.Address2_Value.text = ""
+    self.Latitude_Value.text = ""
+    self.Longitude_Value.text = ""
+    self.Formatted_Address_Value.text = ""
+
   def search_button_click(self, **event_args):
     try:
       address_query = {
@@ -481,9 +496,10 @@ class MapEntry(MapEntryTemplate):
     try:
       dom_node = anvil.js.get_dom_node(self.map_1)
       on_toggle = self._on_fullscreen_toggled
+      gmap = self._find_js_gmap()
       anvil.js.call_js(
           """
-          (function(root, notifyToggle) {
+          (function(root, notifyToggle, gmapObj) {
               if (!root) return;
 
               var EXIT_BTN_ID = 'anvil-exit-map-fullscreen-btn';
@@ -535,8 +551,20 @@ class MapEntry(MapEntryTemplate):
                   }
               }
 
+              function getInnerMapContainer(el) {
+                  var gmStyle = el.querySelector('.gm-style');
+                  if (gmStyle && gmStyle.parentElement && gmStyle.parentElement !== el) {
+                      return gmStyle.parentElement;
+                  }
+                  return null;
+              }
+
               function triggerMapResize(el) {
                   if (window.google && window.google.maps && window.google.maps.event) {
+                      if (gmapObj) {
+                          window.google.maps.event.trigger(gmapObj, 'resize');
+                          return;
+                      }
                       var mapDiv = el.querySelector('.gm-style') || el;
                       if (mapDiv && mapDiv.__gm && mapDiv.__gm.gm) {
                           window.google.maps.event.trigger(mapDiv.__gm.gm, 'resize');
@@ -547,6 +575,10 @@ class MapEntry(MapEntryTemplate):
               function collapseMap(el) {
                   el.dataset.anvilMapExpanded = 'false';
                   el.setAttribute('style', el.dataset.prevStyle || '');
+                  var inner = getInnerMapContainer(el);
+                  if (inner && inner.dataset.prevStyle !== undefined) {
+                      inner.setAttribute('style', inner.dataset.prevStyle);
+                  }
                   removeExitButton();
                   stopModalWatcher();
                   triggerMapResize(el);
@@ -585,6 +617,9 @@ class MapEntry(MapEntryTemplate):
               function toggleExpanded(el) {
                   var isExpanded = el.dataset.anvilMapExpanded === 'true';
                   if (!isExpanded) {
+                      if (document.fullscreenElement && document.exitFullscreen) {
+                          document.exitFullscreen().catch(function() {});
+                      }
                       el.dataset.prevStyle = el.getAttribute('style') || '';
                       el.dataset.anvilMapExpanded = 'true';
                       el.style.position = 'fixed';
@@ -594,41 +629,22 @@ class MapEntry(MapEntryTemplate):
                       el.style.height = '100vh';
                       el.style.zIndex = '99999';
                       el.style.background = '#ffffff';
+
+                      var inner = getInnerMapContainer(el);
+                      if (inner) {
+                          inner.dataset.prevStyle = inner.getAttribute('style') || '';
+                          inner.style.width = '100%';
+                          inner.style.height = '100%';
+                      }
+
                       createExitButton(el);
                       startModalWatcher();
                       triggerMapResize(el);
+                      setTimeout(function() {
+                          if (typeof notifyToggle === 'function') notifyToggle();
+                      }, 150);
                   } else {
                       collapseMap(el);
-                  }
-                  setTimeout(function() {
-                      if (typeof notifyToggle === 'function') notifyToggle();
-                  }, 150);
-              }
-
-              if (document && document.fullscreenEnabled) {
-                  var queue = [root];
-                  var visited = new Set();
-                  while (queue.length > 0) {
-                      var node = queue.shift();
-                      if (!node || visited.has(node)) continue;
-                      visited.add(node);
-                      if (node.tagName === 'BUTTON') {
-                          var label = (node.getAttribute('aria-label') || node.title || '').toLowerCase();
-                          if (label.indexOf('fullscreen') !== -1 || label.indexOf('full screen') !== -1) {
-                              node.click();
-                              startModalWatcher();
-                              setTimeout(function() {
-                                  if (typeof notifyToggle === 'function') notifyToggle();
-                              }, 150);
-                              return;
-                          }
-                      }
-                      if (node.shadowRoot) queue.push(node.shadowRoot);
-                      if (node.children) {
-                          for (var i = 0; i < node.children.length; i++) {
-                              queue.push(node.children[i]);
-                          }
-                      }
                   }
               }
 
@@ -637,6 +653,7 @@ class MapEntry(MapEntryTemplate):
           """,
           dom_node,
           on_toggle,
+          gmap,
       )
     except Exception as e:
       alert(f"Error toggling fullscreen map: {e}", title="Fullscreen Error")
@@ -989,48 +1006,48 @@ class MapEntry(MapEntryTemplate):
       alert(f"Could not locate your postal code: {e}")
 
   def save_button_click(self, **event_args):
-      try:
-        logged_in_email = anvil.server.call("get_authenticated_user")
-        if not logged_in_email:
-          alert("Please log in before saving a map item.")
-          return
+    try:
+      logged_in_email = anvil.server.call("get_authenticated_user")
+      if not logged_in_email:
+        alert("Please log in before saving a map item.")
+        return
 
-        selected_city = self.City_Value.selected_value
-        final_city = (
-            self.Custom_City_TextBox.text
-            if selected_city == "MANUAL_ENTRY"
-            else selected_city
-        )
+      selected_city = self.City_Value.selected_value
+      final_city = (
+          self.Custom_City_TextBox.text
+          if selected_city == "MANUAL_ENTRY"
+          else selected_city
+      )
 
-        record_data = {
-            "country_code": self.Country_Code_Value.selected_value,
-            "state": self.State_Province_Region_Value.selected_value,
-            "city": final_city,
-            "postal_code": self.Postal_Code_Value.text,
-            "address_1": self.Address1_Value.text,
-            "address_2": self.Address2_Value.text,
-            "latitude": (
-                float(self.Latitude_Value.text)
-                if self.Latitude_Value.text
-                else None
-            ),
-            "longitude": (
-                float(self.Longitude_Value.text)
-                if self.Longitude_Value.text
-                else None
-            ),
-            "formatted_address": self.Formatted_Address_Value.text,
-        }
+      record_data = {
+          "country_code": self.Country_Code_Value.selected_value,
+          "state": self.State_Province_Region_Value.selected_value,
+          "city": final_city,
+          "postal_code": self.Postal_Code_Value.text,
+          "address_1": self.Address1_Value.text,
+          "address_2": self.Address2_Value.text,
+          "latitude": (
+              float(self.Latitude_Value.text)
+              if self.Latitude_Value.text
+              else None
+          ),
+          "longitude": (
+              float(self.Longitude_Value.text)
+              if self.Longitude_Value.text
+              else None
+          ),
+          "formatted_address": self.Formatted_Address_Value.text,
+      }
 
-        saved_id = anvil.server.call(
-            "save_map_item",
-            None,
-            record_data,
-            use_test_table=self.use_test_table,
-        )
-        if saved_id:
-          table_label = "MapItems_Test" if self.use_test_table else "MapItems"
-          alert(f"Record saved successfully to {table_label} (ID: {saved_id})!")
-          self.refresh_map_display(active_record_id=saved_id, force=True)
-      except Exception as e:
-        alert(f"Error saving record: {e}")
+      saved_id = anvil.server.call(
+          "save_map_item",
+          None,
+          record_data,
+          use_test_table=self.use_test_table,
+      )
+      if saved_id:
+        table_label = "MapItems_Test" if self.use_test_table else "MapItems"
+        alert(f"Record saved successfully to {table_label} (ID: {saved_id})!")
+        self.refresh_map_display(active_record_id=saved_id, force=True)
+    except Exception as e:
+      alert(f"Error saving record: {e}")
