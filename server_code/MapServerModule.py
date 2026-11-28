@@ -1,5 +1,6 @@
 import datetime
 import math
+import random
 import anvil.server
 import anvil.tables as tables
 from anvil.tables import app_tables, query as q
@@ -8,6 +9,11 @@ from pycountry_convert import country_alpha2_to_continent_code
 from country_state_city import Country, State, City
 from geopy.geocoders import Nominatim
 from .MapUserModule import get_authenticated_user_row
+
+try:
+    from .ScorecardModule import rebuild_scorecard_rollup
+except ImportError:
+    rebuild_scorecard_rollup = None
 
 geolocator = Nominatim(user_agent="NaturistMappingProject")
 
@@ -77,7 +83,11 @@ def _viewport_width_in_unit(bounds, unit_type):
         east = float(bounds['east'])
         west = float(bounds['west'])
         mid_lat = (north + south) / 2.0
-        width_km = calculate_haversine_distance_km(mid_lat, west, mid_lat, east)
+        dlon_deg = east - west
+        if dlon_deg <= 0:
+            dlon_deg += 360.0
+        earth_circ_km = 2.0 * math.pi * 6371.0 * max(0.05, math.cos(math.radians(mid_lat)))
+        width_km = earth_circ_km * (dlon_deg / 360.0)
         if unit_type in ['miles', 'mi']:
             return width_km / 1.60934
         return width_km
@@ -698,61 +708,62 @@ def save_map_item(item_id, item_data, use_test_table=True):
 
 
 def update_summary_tier(summary_table, query_dict, lat, lon):
-  if not query_dict or any(
-      v is None or str(v).strip() == "" for v in query_dict.values()
-  ):
-    return
+    if not query_dict or any(
+        v is None or str(v).strip() == "" for v in query_dict.values()
+    ):
+        return
 
-  coords = _sanitize_coords(lat, lon, state=query_dict.get("state", ""))
-  if not coords:
-    return
-  lat_f, lon_f = coords
+    coords = _sanitize_coords(lat, lon, state=query_dict.get("state", ""))
+    if not coords:
+        return
+    lat_f, lon_f = coords
 
-  summary_row = summary_table.get(**query_dict)
-  if summary_row is None:
-    summary_table.add_row(
-        **query_dict,
-        center_lat=lat_f,
-        center_lon=lon_f,
-        min_lat=lat_f,
-        max_lat=lat_f,
-        min_lon=lon_f,
-        max_lon=lon_f,
-        user_count=1,
+    summary_row = summary_table.get(**query_dict)
+    if summary_row is None:
+        summary_table.add_row(
+            **query_dict,
+            center_lat=lat_f,
+            center_lon=lon_f,
+            min_lat=lat_f,
+            max_lat=lat_f,
+            min_lon=lon_f,
+            max_lon=lon_f,
+            user_count=1,
+        )
+        return
+
+    cur_min_lat = summary_row["min_lat"]
+    cur_max_lat = summary_row["max_lat"]
+    cur_min_lon = summary_row["min_lon"]
+    cur_max_lon = summary_row["max_lon"]
+    cur_count = summary_row["user_count"]
+
+    if (
+        cur_min_lat is None
+        or cur_max_lat is None
+        or cur_min_lon is None
+        or cur_max_lon is None
+    ):
+        min_lat = max_lat = lat_f
+        min_lon = max_lon = lon_f
+    else:
+        min_lat = min(float(cur_min_lat), lat_f)
+        max_lat = max(float(cur_max_lat), lat_f)
+        min_lon = min(float(cur_min_lon), lon_f)
+        max_lon = max(float(cur_max_lon), lon_f)
+
+    new_count = (int(cur_count) + 1) if cur_count is not None else 1
+
+    summary_row.update(
+        center_lat=(min_lat + max_lat) / 2.0,
+        center_lon=(min_lon + max_lon) / 2.0,
+        min_lat=min_lat,
+        max_lat=max_lat,
+        min_lon=min_lon,
+        max_lon=max_lon,
+        user_count=new_count,
     )
-    return
 
-  cur_min_lat = summary_row["min_lat"]
-  cur_max_lat = summary_row["max_lat"]
-  cur_min_lon = summary_row["min_lon"]
-  cur_max_lon = summary_row["max_lon"]
-  cur_count = summary_row["user_count"]
-
-  if (
-      cur_min_lat is None
-      or cur_max_lat is None
-      or cur_min_lon is None
-      or cur_max_lon is None
-  ):
-    min_lat = max_lat = lat_f
-    min_lon = max_lon = lon_f
-  else:
-    min_lat = min(float(cur_min_lat), lat_f)
-    max_lat = max(float(cur_max_lat), lat_f)
-    min_lon = min(float(cur_min_lon), lon_f)
-    max_lon = max(float(cur_max_lon), lon_f)
-
-  new_count = (int(cur_count) + 1) if cur_count is not None else 1
-
-  summary_row.update(
-      center_lat=(min_lat + max_lat) / 2.0,
-      center_lon=(min_lon + max_lon) / 2.0,
-      min_lat=min_lat,
-      max_lat=max_lat,
-      min_lon=min_lon,
-      max_lon=max_lon,
-      user_count=new_count,
-  )
 
 @anvil.server.callable
 def get_country_list():
@@ -820,6 +831,7 @@ def get_cities_for_state(country_code, state_code):
         pass
     city_list.append(("Enter City Manually", "MANUAL_ENTRY"))
     return city_list
+
 
 @anvil.server.callable
 def geocode_address(address_query):
@@ -894,38 +906,76 @@ def get_users_for_cluster(cluster_keys, page=1, page_size=100, use_test_table=Fa
         'restricted': False
     }
 
+
 def _resolve_names_via_pycountry(
     country_code=None, state=None, country_name=None, state_name=None
 ):
-  resolved_country = str(country_name).strip() if country_name else ""
-  resolved_state = str(state_name).strip() if state_name else ""
+    resolved_country = str(country_name).strip() if country_name else ""
+    resolved_state = str(state_name).strip() if state_name else ""
 
-  code_clean = str(country_code).strip().upper() if country_code else ""
-  state_clean = str(state).strip().upper() if state else ""
+    code_clean = str(country_code).strip().upper() if country_code else ""
+    state_clean = str(state).strip().upper() if state else ""
 
-  # Never keep raw codes as display names
-  if resolved_country.upper() == code_clean:
-    resolved_country = ""
-  if resolved_state.upper() == state_clean:
-    resolved_state = ""
+    # Never keep raw codes as display names
+    if resolved_country.upper() == code_clean:
+        resolved_country = ""
+    if resolved_state.upper() == state_clean:
+        resolved_state = ""
 
-  if not resolved_country and code_clean:
-    c_obj = None
-    if len(code_clean) == 2 and code_clean.isalpha():
-      c_obj = pycountry.countries.get(alpha_2=code_clean)
-    elif len(code_clean) == 3 and code_clean.isalpha():
-      c_obj = pycountry.countries.get(alpha_3=code_clean)
-    if c_obj and getattr(c_obj, "name", None):
-      resolved_country = c_obj.name
+    if not resolved_country and code_clean:
+        c_obj = None
+        if len(code_clean) == 2 and code_clean.isalpha():
+            c_obj = pycountry.countries.get(alpha_2=code_clean)
+        elif len(code_clean) == 3 and code_clean.isalpha():
+            c_obj = pycountry.countries.get(alpha_3=code_clean)
+        if c_obj and getattr(c_obj, "name", None):
+            resolved_country = c_obj.name
 
-  if not resolved_state and state_clean:
-    sub_code = (
-        state_clean
-        if "-" in state_clean
-        else (f"{code_clean}-{state_clean}" if code_clean else state_clean)
+    if not resolved_state and state_clean:
+        sub_code = (
+            state_clean
+            if "-" in state_clean
+            else (f"{code_clean}-{state_clean}" if code_clean else state_clean)
+        )
+        sub_obj = pycountry.subdivisions.get(code=sub_code)
+        if sub_obj and getattr(sub_obj, "name", None):
+            resolved_state = sub_obj.name
+
+    return (resolved_country or None), (resolved_state or None)
+
+
+@anvil.server.background_task
+def randomize_mapitem_dates_task():
+    now_utc = datetime.datetime.now(datetime.timezone.utc)
+    max_seconds = 120 * 24 * 60 * 60
+    updated_count = 0
+
+    for row in app_tables.mapitems_test.search(q.fetch_only()):
+        offset_seconds = random.uniform(0, max_seconds)
+        random_dt = now_utc - datetime.timedelta(seconds=offset_seconds)
+        row.update(date_time=random_dt)
+        updated_count += 1
+        if updated_count % 100 == 0:
+            print(f"Updated {updated_count} rows in MapItems_test...")
+
+    print(
+        f"Finished updating {updated_count} total rows in MapItems_test. "
+        "Triggering rebuild_scorecard_rollup..."
     )
-    sub_obj = pycountry.subdivisions.get(code=sub_code)
-    if sub_obj and getattr(sub_obj, "name", None):
-      resolved_state = sub_obj.name
+    anvil.server.task_state['updated_count'] = updated_count
 
-  return (resolved_country or None), (resolved_state or None)
+    if callable(rebuild_scorecard_rollup):
+        rebuild_scorecard_rollup()
+        print("rebuild_scorecard_rollup complete.")
+    else:
+        task = anvil.server.launch_background_task('rebuild_scorecard_rollup')
+        print(
+            f"Launched rebuild_scorecard_rollup background task "
+            f"(Task ID: {task.get_id()})."
+        )
+
+
+@anvil.server.callable
+def start_randomize_mapitem_dates():
+    task = anvil.server.launch_background_task('randomize_mapitem_dates_task')
+    return f"Started date randomization & scorecard rollup task (Task ID: {task.get_id()})."

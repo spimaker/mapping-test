@@ -1009,6 +1009,22 @@ class MapEntry(MapEntryTemplate):
           large=False,
       )
 
+  def randomize_mapitem_dates_click(self, **event_args):
+    """Triggered when the button is clicked to randomize MapItems_Test dates and rebuild the scorecard rollup."""
+    try:
+      result_message = anvil.server.call("start_randomize_mapitem_dates")
+      alert(
+          content=result_message,
+          title="Background Task Started",
+          large=False,
+      )
+    except Exception as e:
+      alert(
+          content=f"Error launching background task: {e}",
+          title="Error",
+          large=False,
+      )
+
   def _render_user_postal_marker(self):
     if not self._user_postal_marker_data:
       return
@@ -1053,12 +1069,10 @@ class MapEntry(MapEntryTemplate):
       self._user_postal_marker_data = loc
       target_pos = self.map_1.LatLng(loc["lat"], loc["lon"])
 
-      # Center and zoom into the user's postal code area
       self.map_1.center = target_pos
       self.map_1.zoom = 12
       self._last_zoom_level = 12.0
 
-      # Reset signature so clusters refresh for the new viewport and re-draw the green marker
       self._last_viewport_sig = None
       self._refresh_current_cluster_mode(force=True)
     except Exception as e:
