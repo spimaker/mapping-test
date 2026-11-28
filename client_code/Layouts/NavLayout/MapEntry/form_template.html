@@ -38,7 +38,7 @@
         <anvil-component type="DropDown" name="Threshold_Dropdown" prop:items='["1","5","10","25","50","100"]' on:change="self.threshold_dropdown_change" container:row="LWTTVO" container:width_xs="2" container:col_xs="9"></anvil-component>
       </anvil-component>
       <anvil-component type="Label" name="label_2" prop:align="center" prop:bold="true" prop:text="Legend" container:grid_position="WQDRVW,MKSORP"></anvil-component>
-      <anvil-component type="RepeatingPanel" name="repeating_panel_1" prop:item_template="Mapping_Test.LegendRow" container:grid_position="YPSTZZ,OXOPMU"></anvil-component>
+      <anvil-component type="RepeatingPanel" name="repeating_panel_1" prop:item_template="Mapping_Test.Layouts.NavLayout.MapEntry.LegendRow" container:grid_position="YPSTZZ,OXOPMU"></anvil-component>
       <anvil-component type="TextArea" name="text_area_1" prop:text="To zoom in to see users in a specific area, first select either City, Postal Code or Miles/Kilometers and a radius
 
 Center the map where you want to zoom into and press the + in the lower right corner to zooom. As you continue to center and zoom into the map, the map marker dots will divide and get smaller, representing smaller areas of the map. Once the zoom level resolves to where users can be listed at the city or postal code levels, the dot will change color from blue to purple. Clicking on the dot at that time will reveal a list of users in that geographic area" prop:height="253.57391357421875" container:grid_position="SDHYAI,PYCPQK"></anvil-component>

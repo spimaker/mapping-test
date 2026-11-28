@@ -20,6 +20,7 @@ unique_ids:
     Layouts.NavLayout.Login_register.Login_confirmation: '1795484222935130408414797.196'
     Layouts.NavLayout.Logout: '1795482785599436932427866.34937'
     Layouts.NavLayout.MapEntry: HKMNAWPZP2LL5SIPSZZBV33LZONCBW35
+    Layouts.NavLayout.MapEntry.LegendRow: '1794711580921611929711088.7031'
     Layouts.NavLayout.Meetups: '1795577969083712928899517.0417'
     Layouts.NavLayout.Profile: '1795496115481174971891060.1096'
     Layouts.NavLayout.Profile.HaveDone: '1795496668276581164426733.9027'
@@ -28,9 +29,6 @@ unique_ids:
     Layouts.NavLayout.Scorecard: '1795476669612159916323154.1193'
     Layouts.NavLayout.Scorecard.ScorecardRow: '1795734654513847363678869.4492'
     Layouts.NavLayout.Terms: '1795641334601385556037007.0074'
-    LegendRow: '1794711580921611929711088.7031'
-    MainLayout: '1791519704721129619112034.22383'
-    RegionRow: '1794284986601166075321968.02942'
   modules:
     AuthVisibilityService: '1795584695881309679495935.2844'
     Layouts: L2XERXKM5GXZCTX32MKMPJJVSQJKHRUK
