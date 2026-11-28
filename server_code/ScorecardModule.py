@@ -1,12 +1,8 @@
-Scratch
-
 import time
 from datetime import datetime, timedelta, timezone
-import datetime
+import random
 import anvil.server
 import anvil.tables
-from anvil.tables import app_tables
-import random
 from anvil.tables import app_tables, query as q
 
 METRIC_KEYS = ("today", "week", "month", "quarter", "year", "all_time")
@@ -311,4 +307,3 @@ def get_scorecard_children(level="region", path=None, force_refresh=False):
 
     rows.sort(key=lambda item: item["area"].lower())
     return rows
-

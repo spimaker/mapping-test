@@ -11,9 +11,12 @@ from geopy.geocoders import Nominatim
 from .MapUserModule import get_authenticated_user_row
 
 try:
-    from .ScorecardModule import rebuild_scorecard_rollup
+    from .ScorecardModule import rebuild_scorecard_rollups
 except ImportError:
-    rebuild_scorecard_rollup = None
+    try:
+        from .ScorecardModule import rebuild_scorecard_rollup as rebuild_scorecard_rollups
+    except ImportError:
+        rebuild_scorecard_rollups = None
 
 geolocator = Nominatim(user_agent="NaturistMappingProject")
 
@@ -960,17 +963,17 @@ def randomize_mapitem_dates_task():
 
     print(
         f"Finished updating {updated_count} total rows in MapItems_test. "
-        "Triggering rebuild_scorecard_rollup..."
+        "Triggering rebuild_scorecard_rollups..."
     )
     anvil.server.task_state['updated_count'] = updated_count
 
-    if callable(rebuild_scorecard_rollup):
-        rebuild_scorecard_rollup()
-        print("rebuild_scorecard_rollup complete.")
+    if callable(rebuild_scorecard_rollups):
+        rebuild_scorecard_rollups()
+        print("rebuild_scorecard_rollups complete.")
     else:
-        task = anvil.server.launch_background_task('rebuild_scorecard_rollup')
+        task = anvil.server.launch_background_task('rebuild_scorecard_rollups')
         print(
-            f"Launched rebuild_scorecard_rollup background task "
+            f"Launched rebuild_scorecard_rollups background task "
             f"(Task ID: {task.get_id()})."
         )
 
